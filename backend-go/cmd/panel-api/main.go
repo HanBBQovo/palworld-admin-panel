@@ -84,6 +84,7 @@ type ServerSettings struct {
 	Community             bool     `json:"community"`
 	RestAPIEnabled        bool     `json:"restApiEnabled"`
 	RconEnabled           bool     `json:"rconEnabled"`
+	PublicDomain          string   `json:"publicDomain"`
 	PublicIP              string   `json:"publicIp"`
 	PublicPort            string   `json:"publicPort"`
 	ExpRate               float64  `json:"expRate"`
@@ -128,6 +129,7 @@ type ServerStatus struct {
 	Host          string            `json:"host"`
 	Address       string            `json:"address"`
 	Version       string            `json:"version"`
+	Timezone      string            `json:"timezone"`
 	Container     string            `json:"container"`
 	Image         string            `json:"image"`
 	Health        string            `json:"health"`
@@ -258,7 +260,7 @@ func loadConfig() Config {
 		RconTimeout:  time.Duration(timeoutMs) * time.Millisecond,
 		AllowRawRcon: parseBool(getenv("PANEL_ALLOW_RAW_RCON", ""), false),
 		WriteEnv:     parseBool(getenv("PANEL_WRITE_ENV", ""), true),
-		DisplayHost:  getenv("PANEL_DISPLAY_HOST", "Docker host"),
+		DisplayHost:  getenv("PANEL_DISPLAY_HOST", ""),
 		PublicDomain: getenvAny("", "PALWORLD_PUBLIC_DOMAIN", "PUBLIC_DOMAIN"),
 	}
 }
@@ -280,6 +282,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("/api/palworld/backups", a.authedAny(map[string]http.HandlerFunc{"GET": a.handleBackups, "POST": a.handleCreateBackup}))
 	mux.HandleFunc("/api/palworld/backups/", a.authed("POST", a.handleBackupSubroute))
 	mux.HandleFunc("/api/palworld/settings", a.authedAny(map[string]http.HandlerFunc{"GET": a.handleGetSettings, "PUT": a.handleSaveSettings}))
+	mux.HandleFunc("/api/palworld/maintenance-policy", a.authed("PUT", a.handleSaveMaintenancePolicy))
 	mux.HandleFunc("/api/palworld/rcon-commands", a.authed("GET", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, commandDefinitions)
 	}))
@@ -446,22 +449,23 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if memLimit == 0 {
 		memLimit = round1(float64(totalMemoryBytes()) / 1024 / 1024 / 1024)
 	}
+	maintenance := a.maintenancePolicy()
 	writeJSON(w, http.StatusOK, ServerStatus{
-		Name: settings.ServerName, Host: a.cfg.DisplayHost, Address: a.publicAddress(settings),
-		Version: a.detectVersion(inspect), Container: a.cfg.Container, Image: image, Health: health,
+		Name: settings.ServerName, Host: a.displayHost(), Address: a.publicAddress(settings),
+		Version: a.detectVersion(inspect), Timezone: serverTimezone(), Container: a.cfg.Container, Image: image, Health: health,
 		StartedAt: formatTimeString(startedAt), Uptime: formatUptime(startedAt),
 		PlayersOnline: a.cachedPlayerCount(), PlayersMax: settings.Players, CPU: parseHostCPU(stats.CPUPerc),
 		MemoryUsedGB: memUsed, MemoryLimitGB: memLimit, DiskUsedGB: disk.UsedGB, DiskTotalGB: disk.TotalGB,
 		WorldSizeGB: worldSize, LastSaveAt: lastModified(a.cfg.SavesDir),
-		NextBackupAt:  getenvAny("按容器配置", "PALWORLD_BACKUP_CRON", "BACKUP_CRON_EXPRESSION"),
-		NextRestartAt: getenvAny("按容器配置", "PALWORLD_AUTO_REBOOT_CRON", "AUTO_REBOOT_CRON_EXPRESSION"),
+		NextBackupAt:  enabledSchedule(maintenance.BackupEnabled, maintenance.BackupCron),
+		NextRestartAt: enabledSchedule(maintenance.AutoReboot, maintenance.AutoRebootCron),
 		Ports: []PortBinding{
 			{Port: getenvIntAny(8211, "PALWORLD_PORT", "PORT"), Protocol: "UDP", Exposure: "public", Purpose: "游戏连接端口", Safe: true},
 			{Port: getenvIntAny(27015, "PALWORLD_QUERY_PORT", "QUERY_PORT"), Protocol: "UDP", Exposure: "public", Purpose: "Steam 查询端口", Safe: true},
 			{Port: a.cfg.RconPort, Protocol: "TCP", Exposure: "local", Purpose: "RCON 管理端口", Safe: true},
 			{Port: getenvIntAny(8212, "PALWORLD_REST_PORT", "REST_API_PORT"), Protocol: "TCP", Exposure: "local", Purpose: "REST API 管理端口", Safe: true},
 		},
-		Maintenance: maintenancePolicy(),
+		Maintenance: maintenance,
 	})
 }
 
@@ -571,6 +575,27 @@ func (a *App) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, next)
 }
 
+func (a *App) handleSaveMaintenancePolicy(w http.ResponseWriter, r *http.Request) {
+	var next MaintenancePolicy
+	if err := readJSON(r, &next); err != nil {
+		writeError(w, APIError{Status: http.StatusBadRequest, Message: "参数不是合法 JSON"})
+		return
+	}
+	if strings.TrimSpace(next.AutoUpdateCron) == "" || strings.TrimSpace(next.AutoRebootCron) == "" || strings.TrimSpace(next.BackupCron) == "" {
+		writeError(w, APIError{Status: http.StatusBadRequest, Message: "Cron 表达式不能为空"})
+		return
+	}
+	if next.BackupRetention < 1 {
+		writeError(w, APIError{Status: http.StatusBadRequest, Message: "备份保留数量必须大于 0"})
+		return
+	}
+	if err := a.saveMaintenancePolicy(next, "admin"); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, next)
+}
+
 func (a *App) handleRcon(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Command string `json:"command"`
@@ -631,6 +656,7 @@ func envSettings() ServerSettings {
 		Community:             parseBool(getenvAny("", "PALWORLD_COMMUNITY", "COMMUNITY"), false),
 		RestAPIEnabled:        parseBool(getenvAny("", "PALWORLD_REST_API_ENABLED", "REST_API_ENABLED"), false),
 		RconEnabled:           parseBool(getenvAny("", "PALWORLD_RCON_ENABLED", "RCON_ENABLED"), true),
+		PublicDomain:          getenvAny("", "PALWORLD_PUBLIC_DOMAIN", "PUBLIC_DOMAIN"),
 		PublicIP:              getenvAny("", "PALWORLD_PUBLIC_IP", "PUBLIC_IP"),
 		PublicPort:            getenvAny("8211", "PALWORLD_PUBLIC_PORT", "PUBLIC_PORT", "PALWORLD_PORT", "PORT"),
 		ExpRate:               getenvFloatAny(1, "PALWORLD_EXP_RATE", "EXP_RATE"),
@@ -664,7 +690,7 @@ func (a *App) saveSettings(settings ServerSettings, actor string) error {
 		return err
 	}
 	if a.cfg.WriteEnv {
-		if err := updateEnvFile(a.cfg.EnvFile, settings); err != nil {
+		if err := updateEnvValues(a.cfg.EnvFile, settingsToEnv(settings)); err != nil {
 			return err
 		}
 	}
@@ -680,7 +706,7 @@ func settingsToEnv(settings ServerSettings) map[string]string {
 		"PALWORLD_SERVER_NAME": settings.ServerName, "PALWORLD_SERVER_DESCRIPTION": settings.Description, "PALWORLD_PLAYERS": strconv.Itoa(settings.Players),
 		"PALWORLD_SERVER_PASSWORD": settings.ServerPassword, "PALWORLD_ADMIN_PASSWORD": settings.AdminPassword, "PALWORLD_COMMUNITY": formatBool(settings.Community),
 		"PALWORLD_RCON_ENABLED": formatBool(settings.RconEnabled), "PALWORLD_REST_API_ENABLED": formatBool(settings.RestAPIEnabled),
-		"PALWORLD_PUBLIC_IP": settings.PublicIP, "PALWORLD_PUBLIC_PORT": settings.PublicPort, "PALWORLD_EXP_RATE": trimFloat(settings.ExpRate),
+		"PALWORLD_PUBLIC_DOMAIN": settings.PublicDomain, "PALWORLD_PUBLIC_IP": settings.PublicIP, "PALWORLD_PUBLIC_PORT": settings.PublicPort, "PALWORLD_EXP_RATE": trimFloat(settings.ExpRate),
 		"PALWORLD_CAPTURE_RATE": trimFloat(settings.CaptureRate), "PALWORLD_SPAWN_RATE": trimFloat(settings.SpawnRate),
 		"PALWORLD_COLLECTION_DROP_RATE": trimFloat(settings.CollectionDropRate), "PALWORLD_ENEMY_DROP_RATE": trimFloat(settings.EnemyDropRate),
 		"PALWORLD_EGG_HATCHING_HOURS": trimFloat(settings.EggHatchingHours), "PALWORLD_AUTO_SAVE_SPAN": strconv.Itoa(settings.AutoSaveSpan),
@@ -692,8 +718,29 @@ func settingsToEnv(settings ServerSettings) map[string]string {
 	}
 }
 
-func updateEnvFile(envFile string, settings ServerSettings) error {
-	updates := settingsToEnv(settings)
+func (a *App) saveMaintenancePolicy(policy MaintenancePolicy, actor string) error {
+	if !a.cfg.WriteEnv {
+		a.audit("warn", "server", "PANEL_WRITE_ENV=false，维护策略未写入 .env", actor, nil)
+		return nil
+	}
+	updates := map[string]string{
+		"UPDATE_ON_BOOT": formatBool(policy.UpdateOnBoot), "PALWORLD_UPDATE_ON_BOOT": formatBool(policy.UpdateOnBoot),
+		"AUTO_UPDATE_ENABLED": formatBool(policy.AutoUpdate), "PALWORLD_AUTO_UPDATE_ENABLED": formatBool(policy.AutoUpdate),
+		"AUTO_UPDATE_CRON_EXPRESSION": policy.AutoUpdateCron, "PALWORLD_AUTO_UPDATE_CRON": policy.AutoUpdateCron,
+		"AUTO_REBOOT_ENABLED": formatBool(policy.AutoReboot), "PALWORLD_AUTO_REBOOT_ENABLED": formatBool(policy.AutoReboot),
+		"AUTO_REBOOT_CRON_EXPRESSION": policy.AutoRebootCron, "PALWORLD_AUTO_REBOOT_CRON": policy.AutoRebootCron,
+		"BACKUP_ENABLED": formatBool(policy.BackupEnabled), "PALWORLD_BACKUP_ENABLED": formatBool(policy.BackupEnabled),
+		"BACKUP_CRON_EXPRESSION": policy.BackupCron, "PALWORLD_BACKUP_CRON": policy.BackupCron,
+		"BACKUP_RETENTION_AMOUNT_TO_KEEP": strconv.Itoa(policy.BackupRetention), "PALWORLD_BACKUP_RETENTION": strconv.Itoa(policy.BackupRetention),
+	}
+	if err := updateEnvValues(a.cfg.EnvFile, updates); err != nil {
+		return err
+	}
+	a.audit("info", "server", "已保存自动维护策略到 .env，重启游戏容器后完全生效", actor, nil)
+	return nil
+}
+
+func updateEnvValues(envFile string, updates map[string]string) error {
 	text, _ := os.ReadFile(envFile)
 	lines := strings.Split(string(text), "\n")
 	seen := map[string]bool{}
@@ -732,26 +779,50 @@ func (a *App) publicAddress(settings ServerSettings) string {
 	if port == "" {
 		port = "8211"
 	}
+	if settings.PublicDomain != "" {
+		return settings.PublicDomain + ":" + port
+	}
 	if a.cfg.PublicDomain != "" {
 		return a.cfg.PublicDomain + ":" + port
 	}
 	if settings.PublicIP != "" {
 		return settings.PublicIP + ":" + port
 	}
-	return "请配置域名:" + port
+	return "未配置连接域名"
 }
 
-func maintenancePolicy() MaintenancePolicy {
-	return MaintenancePolicy{
-		UpdateOnBoot:    parseBool(getenvAny("", "PALWORLD_UPDATE_ON_BOOT", "UPDATE_ON_BOOT"), true),
-		AutoUpdate:      parseBool(getenvAny("", "PALWORLD_AUTO_UPDATE_ENABLED", "AUTO_UPDATE_ENABLED"), true),
-		AutoUpdateCron:  getenvAny("0 4 * * *", "PALWORLD_AUTO_UPDATE_CRON", "AUTO_UPDATE_CRON_EXPRESSION"),
-		AutoReboot:      parseBool(getenvAny("", "PALWORLD_AUTO_REBOOT_ENABLED", "AUTO_REBOOT_ENABLED"), true),
-		AutoRebootCron:  getenvAny("0 5 * * *", "PALWORLD_AUTO_REBOOT_CRON", "AUTO_REBOOT_CRON_EXPRESSION"),
-		BackupEnabled:   parseBool(getenvAny("", "PALWORLD_BACKUP_ENABLED", "BACKUP_ENABLED"), true),
-		BackupCron:      getenvAny("0 * * * *", "PALWORLD_BACKUP_CRON", "BACKUP_CRON_EXPRESSION"),
-		BackupRetention: getenvIntAny(72, "PALWORLD_BACKUP_RETENTION", "BACKUP_RETENTION_AMOUNT_TO_KEEP"),
+func (a *App) displayHost() string {
+	if value := strings.TrimSpace(a.cfg.DisplayHost); value != "" {
+		return value
 	}
+	if name, err := os.Hostname(); err == nil && strings.TrimSpace(name) != "" {
+		return strings.TrimSpace(name)
+	}
+	return "unknown"
+}
+
+func (a *App) maintenancePolicy() MaintenancePolicy {
+	fileEnv := readEnvFile(a.cfg.EnvFile)
+	return MaintenancePolicy{
+		UpdateOnBoot:    parseBool(envValueAny(fileEnv, "", "PALWORLD_UPDATE_ON_BOOT", "UPDATE_ON_BOOT"), true),
+		AutoUpdate:      parseBool(envValueAny(fileEnv, "", "PALWORLD_AUTO_UPDATE_ENABLED", "AUTO_UPDATE_ENABLED"), true),
+		AutoUpdateCron:  envValueAny(fileEnv, "0 4 * * *", "PALWORLD_AUTO_UPDATE_CRON", "AUTO_UPDATE_CRON_EXPRESSION"),
+		AutoReboot:      parseBool(envValueAny(fileEnv, "", "PALWORLD_AUTO_REBOOT_ENABLED", "AUTO_REBOOT_ENABLED"), true),
+		AutoRebootCron:  envValueAny(fileEnv, "0 5 * * *", "PALWORLD_AUTO_REBOOT_CRON", "AUTO_REBOOT_CRON_EXPRESSION"),
+		BackupEnabled:   parseBool(envValueAny(fileEnv, "", "PALWORLD_BACKUP_ENABLED", "BACKUP_ENABLED"), true),
+		BackupCron:      envValueAny(fileEnv, "0 * * * *", "PALWORLD_BACKUP_CRON", "BACKUP_CRON_EXPRESSION"),
+		BackupRetention: envIntAny(fileEnv, 72, "PALWORLD_BACKUP_RETENTION", "BACKUP_RETENTION_AMOUNT_TO_KEEP"),
+	}
+}
+
+func enabledSchedule(enabled bool, schedule string) string {
+	if !enabled {
+		return "关闭"
+	}
+	if strings.TrimSpace(schedule) == "" {
+		return "按容器配置"
+	}
+	return schedule
 }
 
 type dockerInspectResult struct {
@@ -804,7 +875,7 @@ func (a *App) detectVersion(inspect *dockerInspectResult) string {
 		return value
 	}
 	if value := steamBuildID(filepath.Join(a.cfg.DataDir, "steamapps", "appmanifest_2394010.acf")); value != "" {
-		return "Steam build " + value
+		return "Build " + value
 	}
 	if inspect != nil {
 		for _, key := range []string{"org.opencontainers.image.version", "version", "build_version"} {
@@ -1491,6 +1562,23 @@ func formatTimeString(value string) string {
 	return formatTime(t)
 }
 
+func serverTimezone() string {
+	if value := strings.TrimSpace(getenv("TZ", "")); value != "" {
+		return value
+	}
+	location := time.Now().Location().String()
+	if location != "" && location != "Local" {
+		return location
+	}
+	_, offset := time.Now().Zone()
+	sign := "+"
+	if offset < 0 {
+		sign = "-"
+		offset = -offset
+	}
+	return fmt.Sprintf("UTC%s%02d:%02d", sign, offset/3600, (offset%3600)/60)
+}
+
 func formatTime(t time.Time) string { return t.Local().Format("2006-01-02 15:04:05") }
 
 func formatUptime(startedAt string) string {
@@ -1556,6 +1644,27 @@ func splitList(value string) []string {
 	return result
 }
 
+func readEnvFile(filePath string) map[string]string {
+	result := map[string]string{}
+	raw, err := os.ReadFile(filePath)
+	if err != nil {
+		return result
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || !strings.Contains(trimmed, "=") {
+			continue
+		}
+		parts := strings.SplitN(trimmed, "=", 2)
+		key := strings.TrimSpace(parts[0])
+		if key == "" {
+			continue
+		}
+		result[key] = parseEnvValue(strings.TrimSpace(parts[1]))
+	}
+	return result
+}
+
 func loadDotEnv(filePath string) {
 	raw, err := os.ReadFile(filePath)
 	if err != nil {
@@ -1586,6 +1695,15 @@ func parseEnvValue(value string) string {
 	return value
 }
 
+func envValueAny(fileEnv map[string]string, fallback string, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(fileEnv[key]); value != "" {
+			return value
+		}
+	}
+	return getenvAny(fallback, keys...)
+}
+
 func getenv(key, fallback string) string {
 	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
@@ -1601,6 +1719,15 @@ func getenvAny(fallback string, keys ...string) string {
 		}
 	}
 	return fallback
+}
+
+func envIntAny(fileEnv map[string]string, fallback int, keys ...string) int {
+	for _, key := range keys {
+		if value, err := strconv.Atoi(strings.TrimSpace(fileEnv[key])); err == nil {
+			return value
+		}
+	}
+	return getenvIntAny(fallback, keys...)
 }
 
 func getenvInt(key string, fallback int) int {

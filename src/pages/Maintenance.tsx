@@ -1,10 +1,13 @@
+import { useEffect, useState, type ReactNode } from 'react'
 import { Power, RefreshCw, RotateCcw, Save, ShieldAlert, UploadCloud } from 'lucide-react'
 
-import { getServerStatus, runMaintenanceAction } from '@/api/palworld'
+import { getServerStatus, runMaintenanceAction, saveMaintenancePolicy, type MaintenancePolicy } from '@/api/palworld'
 import { PageShell, PageStat, PageStatStrip, PageSurface } from '@/components/layout/PageScaffold'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { useConfirm } from '@/components/ui/use-confirm'
 import { useGlobalToast } from '@/components/ui/use-global-toast'
 import { useResource } from '@/lib/use-resource'
@@ -32,8 +35,39 @@ const riskVariant: Record<ActionItem['risk'], 'default' | 'secondary' | 'destruc
 
 export default function Maintenance() {
   const { data, refresh } = useResource(getServerStatus, [])
+  const [policy, setPolicy] = useState<MaintenancePolicy | null>(null)
+  const [savingPolicy, setSavingPolicy] = useState(false)
   const confirm = useConfirm()
   const { showToast } = useGlobalToast()
+
+  useEffect(() => {
+    if (data?.maintenance) setPolicy(data.maintenance)
+  }, [data?.maintenance])
+
+  const updatePolicy = <K extends keyof MaintenancePolicy>(key: K, value: MaintenancePolicy[K]) => {
+    setPolicy((current) => current ? { ...current, [key]: value } : current)
+  }
+
+  const savePolicy = async () => {
+    if (!policy) return
+    const ok = await confirm({
+      title: '保存自动维护策略',
+      description: '会写入 .env；上游定时任务通常需要重启游戏容器后完全按新配置运行。确认保存？',
+      confirmText: '保存策略',
+    })
+    if (!ok) return
+    setSavingPolicy(true)
+    try {
+      const next = await saveMaintenancePolicy(policy)
+      setPolicy(next)
+      showToast('success', '自动维护策略已保存')
+      refresh()
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : '保存失败')
+    } finally {
+      setSavingPolicy(false)
+    }
+  }
 
   const execute = async (action: ActionItem) => {
     const ok = await confirm({
@@ -71,10 +105,64 @@ export default function Maintenance() {
 
         <PageStatStrip>
           <PageStat label="启动更新" value={data?.maintenance.updateOnBoot ? '开启' : '关闭'} note="UPDATE_ON_BOOT" />
-          <PageStat label="自动更新" value={data?.maintenance.autoUpdate ? '04:00' : '关闭'} note={data?.maintenance.autoUpdateCron} />
-          <PageStat label="自动重启" value={data?.maintenance.autoReboot ? '05:00' : '关闭'} note={data?.maintenance.autoRebootCron} />
-          <PageStat label="自动备份" value={data?.maintenance.backupEnabled ? '每小时' : '关闭'} note={`保留 ${data?.maintenance.backupRetention ?? 0} 份`} />
+          <PageStat label="自动更新" value={data?.maintenance.autoUpdate ? data.maintenance.autoUpdateCron : '关闭'} note="AUTO_UPDATE_CRON_EXPRESSION" />
+          <PageStat label="自动重启" value={data?.maintenance.autoReboot ? data.maintenance.autoRebootCron : '关闭'} note="AUTO_REBOOT_CRON_EXPRESSION" />
+          <PageStat label="自动备份" value={data?.maintenance.backupEnabled ? data.maintenance.backupCron : '关闭'} note={`保留 ${data?.maintenance.backupRetention ?? 0} 份`} />
         </PageStatStrip>
+
+        {policy ? (
+          <PageSurface
+            title="自动维护策略"
+            description="这里直接配置更新、重启、备份的开关和 Cron 时间；保存后写入同一个 .env。"
+            actions={
+              <Button type="button" className="gap-2" onClick={savePolicy} disabled={savingPolicy}>
+                <Save className="h-4 w-4" />
+                保存策略
+              </Button>
+            }
+          >
+            <div className="grid gap-4 xl:grid-cols-2">
+              <PolicyRow
+                title="容器启动时检查更新"
+                description="控制 UPDATE_ON_BOOT。开启后重启游戏容器时会检查服务端更新。"
+                checked={policy.updateOnBoot}
+                onCheckedChange={(value) => updatePolicy('updateOnBoot', value)}
+              />
+              <PolicyRow
+                title="自动更新"
+                description="控制 AUTO_UPDATE_ENABLED。到点执行上游容器的自动更新逻辑。"
+                checked={policy.autoUpdate}
+                onCheckedChange={(value) => updatePolicy('autoUpdate', value)}
+              >
+                <Input value={policy.autoUpdateCron} onChange={(event) => updatePolicy('autoUpdateCron', event.target.value)} placeholder="0 4 * * *" />
+              </PolicyRow>
+              <PolicyRow
+                title="自动重启"
+                description="控制 AUTO_REBOOT_ENABLED。用于每天固定窗口重启游戏容器。"
+                checked={policy.autoReboot}
+                onCheckedChange={(value) => updatePolicy('autoReboot', value)}
+              >
+                <Input value={policy.autoRebootCron} onChange={(event) => updatePolicy('autoRebootCron', event.target.value)} placeholder="0 5 * * *" />
+              </PolicyRow>
+              <PolicyRow
+                title="自动备份"
+                description="控制 BACKUP_ENABLED。备份时间与保留份数都可以调整。"
+                checked={policy.backupEnabled}
+                onCheckedChange={(value) => updatePolicy('backupEnabled', value)}
+              >
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_140px]">
+                  <Input value={policy.backupCron} onChange={(event) => updatePolicy('backupCron', event.target.value)} placeholder="0 * * * *" />
+                  <Input
+                    type="number"
+                    min={1}
+                    value={policy.backupRetention}
+                    onChange={(event) => updatePolicy('backupRetention', Math.max(1, Number(event.target.value) || 1))}
+                  />
+                </div>
+              </PolicyRow>
+            </div>
+          </PageSurface>
+        ) : null}
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {ACTIONS.map((action) => {
@@ -103,5 +191,32 @@ export default function Maintenance() {
         </div>
       </div>
     </PageShell>
+  )
+}
+
+function PolicyRow({
+  title,
+  description,
+  checked,
+  onCheckedChange,
+  children,
+}: {
+  title: string
+  description: string
+  checked: boolean
+  onCheckedChange: (value: boolean) => void
+  children?: ReactNode
+}) {
+  return (
+    <div className="rounded-xl border border-border/70 p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-sm font-medium">{title}</div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+        </div>
+        <Switch checked={checked} onCheckedChange={onCheckedChange} />
+      </div>
+      {children ? <div className="mt-4">{children}</div> : null}
+    </div>
   )
 }

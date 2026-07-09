@@ -51,9 +51,11 @@ export default function Console() {
       const result = await runRconCommand(trimmed)
       setOutput(`[${result.executedAt}] $ ${result.command}\n${result.output}`)
       showToast('success', 'RCON 命令已提交')
+      logs.refresh()
     } catch (error) {
       setOutput(error instanceof Error ? error.message : '执行失败')
       showToast('error', 'RCON 执行失败')
+      logs.refresh()
     } finally {
       setRunning(false)
     }
@@ -119,16 +121,19 @@ export default function Console() {
               <div className="rounded-xl border border-border/70 bg-muted/50 p-4">
                 <div className="mb-2 flex items-center gap-2 text-sm font-medium">
                   <Terminal className="h-4 w-4" />
-                  输出
+                  最近一次执行结果
                 </div>
-                <pre className="min-h-36 whitespace-pre-wrap break-words font-mono text-xs text-muted-foreground">{output || '等待执行命令...'}</pre>
+                <pre className="max-h-72 min-h-36 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-background/60 p-3 font-mono text-xs text-muted-foreground">
+                  {output || '执行后会在这里显示返回内容；失败时也会显示错误原因。'}
+                </pre>
               </div>
             </div>
           </PageSurface>
         </div>
 
         <PageSurface title="服务日志" description="启动、备份、更新、RCON 事件聚合。">
-          <div className="grid gap-3 xl:grid-cols-2">
+          <div className="max-h-[560px] overflow-y-auto pr-2">
+            <div className="grid gap-3 xl:grid-cols-2">
             {(logs.data ?? []).map((entry) => (
               <div key={entry.id} className="rounded-xl border border-border/70 p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -139,6 +144,7 @@ export default function Console() {
                 <div className="break-words font-mono text-xs">{entry.message}</div>
               </div>
             ))}
+            </div>
           </div>
         </PageSurface>
       </div>

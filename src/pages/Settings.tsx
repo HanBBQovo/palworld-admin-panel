@@ -218,7 +218,15 @@ export default function Settings() {
         <PageSurface title="网络安全" description="管理接口只应由后端本机访问，Web 面板走 HTTPS 鉴权入口。">
           <FormSection className="sm:max-w-2xl">
             <div className="grid gap-5 sm:grid-cols-2">
-              <FormField label="Public IP" htmlFor="public-ip" description="自动检测异常时再填写。">
+              <FormField label="连接域名" htmlFor="public-domain" description="玩家连接用域名，不要带端口；总览会展示为 域名:端口。">
+                <Input
+                  id="public-domain"
+                  placeholder="pal.example.com"
+                  value={settings.publicDomain}
+                  onChange={(event) => update('publicDomain', event.target.value)}
+                />
+              </FormField>
+              <FormField label="Public IP" htmlFor="public-ip" description="没有域名时可临时填写 IP。">
                 <Input id="public-ip" placeholder="${PUBLIC_IP}" value={settings.publicIp} onChange={(event) => update('publicIp', event.target.value)} />
               </FormField>
               <FormField label="Public Port" htmlFor="public-port" description="默认 8211。">

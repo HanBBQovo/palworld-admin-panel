@@ -10,6 +10,7 @@ export interface ServerStatus {
   host: string
   address: string
   version: string
+  timezone: string
   container: string
   image: string
   health: ServerHealth
@@ -88,6 +89,7 @@ export interface ServerSettings {
   community: boolean
   restApiEnabled: boolean
   rconEnabled: boolean
+  publicDomain: string
   publicIp: string
   publicPort: string
   expRate: number
@@ -129,7 +131,8 @@ const status: ServerStatus = {
   name: 'Palworld Dedicated Server',
   host: 'Docker host',
   address: 'your-domain.example:8211',
-  version: 'v0.7.3.90464',
+  version: 'Build 22460594',
+  timezone: 'Asia/Shanghai',
   container: 'palworld-server',
   image: 'thijsvanloef/palworld-server-docker:latest',
   health: 'healthy',
@@ -245,6 +248,7 @@ const settings: ServerSettings = {
   community: false,
   restApiEnabled: false,
   rconEnabled: true,
+  publicDomain: 'your-domain.example',
   publicIp: '',
   publicPort: '',
   expRate: 1,
@@ -386,6 +390,18 @@ export async function runMaintenanceAction(action: string): Promise<{ ok: boolea
   return delay({ ok: true, message: `${action} 已加入执行队列` }, 420)
 }
 
+export async function saveMaintenancePolicy(policy: MaintenancePolicy): Promise<MaintenancePolicy> {
+  if (!USE_MOCK_API) {
+    return apiRequest<MaintenancePolicy>('/palworld/maintenance-policy', {
+      method: 'PUT',
+      body: JSON.stringify(policy),
+    })
+  }
+
+  Object.assign(status.maintenance, policy)
+  return delay({ ...status.maintenance }, 360)
+}
+
 export async function saveSettings(nextSettings: ServerSettings): Promise<ServerSettings> {
   if (!USE_MOCK_API) {
     return apiRequest<ServerSettings>('/palworld/settings', {
@@ -397,5 +413,6 @@ export async function saveSettings(nextSettings: ServerSettings): Promise<Server
   Object.assign(settings, nextSettings)
   status.name = nextSettings.serverName
   status.playersMax = nextSettings.players
+  status.address = nextSettings.publicDomain ? `${nextSettings.publicDomain}:${nextSettings.publicPort || '8211'}` : '未配置连接域名'
   return delay({ ...settings }, 360)
 }

@@ -87,7 +87,7 @@ export default function Overview() {
               <PageStat label="在线玩家" value={`${data.playersOnline}/${data.playersMax}`} note={data.address} />
             </motion.div>
             <motion.div variants={staggerItem}>
-              <PageStat label="游戏版本" value={data.version} note={data.image} />
+              <PageStat label="服务端构建" value={data.version} note={data.image} />
             </motion.div>
             <motion.div variants={staggerItem}>
               <PageStat label="下次备份" value={data.nextBackupAt} note={`重启 ${data.nextRestartAt}`} />
@@ -95,7 +95,7 @@ export default function Overview() {
           </PageStatStrip>
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-            <PageSurface title="运行资源" description="基于部署验证快照展示，后端接入后可替换为实时 Docker stats。">
+            <PageSurface title="运行资源" description="来自当前容器的实时 Docker stats 与宿主机磁盘信息。">
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="rounded-xl border border-border/70 p-4">
                   <div className="mb-2 text-sm text-muted-foreground">CPU</div>
@@ -130,7 +130,7 @@ export default function Overview() {
               <div className="flex flex-col gap-3 text-sm">
                 <InfoRow label="宿主机" value={data.host} />
                 <InfoRow label="连接地址" value={data.address} />
-                <InfoRow label="启动时间" value={data.startedAt} />
+                <InfoRow label={`启动时间（${data.timezone || '服务器时区'}）`} value={data.startedAt} />
                 <InfoRow label="运行时长" value={data.uptime} />
                 <InfoRow label="最后保存" value={data.lastSaveAt} />
                 <InfoRow label="容器名" value={data.container} />
