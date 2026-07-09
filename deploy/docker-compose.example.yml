@@ -1,0 +1,64 @@
+services:
+  palworld:
+    image: thijsvanloef/palworld-server-docker:latest
+    container_name: ${PALWORLD_CONTAINER:-palworld-server}
+    restart: unless-stopped
+    stop_grace_period: 120s
+    env_file:
+      - .env
+    ports:
+      - "${PALWORLD_PORT:-8211}:8211/udp"
+      - "${PALWORLD_QUERY_PORT:-27015}:27015/udp"
+      - "127.0.0.1:${PALWORLD_RCON_PORT:-25575}:25575/tcp"
+      - "127.0.0.1:${PALWORLD_REST_PORT:-8212}:8212/tcp"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PORT: "8211"
+      QUERY_PORT: "27015"
+      PLAYERS: ${PALWORLD_PLAYERS:-32}
+      SERVER_NAME: ${PALWORLD_SERVER_NAME:-Palworld Dedicated Server}
+      SERVER_DESCRIPTION: ${PALWORLD_SERVER_DESCRIPTION:-Managed by Palworld Ops}
+      SERVER_PASSWORD: ${PALWORLD_SERVER_PASSWORD:-change-game-password}
+      ADMIN_PASSWORD: ${PALWORLD_ADMIN_PASSWORD:-change-admin-password}
+      COMMUNITY: ${PALWORLD_COMMUNITY:-false}
+      RCON_ENABLED: ${PALWORLD_RCON_ENABLED:-true}
+      RCON_PORT: "25575"
+      REST_API_ENABLED: ${PALWORLD_REST_API_ENABLED:-false}
+      REST_API_PORT: "8212"
+      UPDATE_ON_BOOT: ${PALWORLD_UPDATE_ON_BOOT:-true}
+      AUTO_UPDATE_ENABLED: ${PALWORLD_AUTO_UPDATE_ENABLED:-true}
+      AUTO_UPDATE_CRON_EXPRESSION: ${PALWORLD_AUTO_UPDATE_CRON:-0 4 * * *}
+      AUTO_REBOOT_ENABLED: ${PALWORLD_AUTO_REBOOT_ENABLED:-true}
+      AUTO_REBOOT_CRON_EXPRESSION: ${PALWORLD_AUTO_REBOOT_CRON:-0 5 * * *}
+      BACKUP_ENABLED: ${PALWORLD_BACKUP_ENABLED:-true}
+      BACKUP_CRON_EXPRESSION: ${PALWORLD_BACKUP_CRON:-0 * * * *}
+      BACKUP_RETENTION_POLICY: "true"
+      BACKUP_RETENTION_AMOUNT_TO_KEEP: ${PALWORLD_BACKUP_RETENTION:-72}
+    volumes:
+      - ./palworld-data:/palworld
+
+  panel:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    container_name: palworld-admin-panel
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PALWORLD_RCON_HOST: palworld
+      PANEL_WEB_ROOT: /app/dist
+      PANEL_STATE_DIR: /data/panel-state
+      PALWORLD_DATA_DIR: /palworld
+      PALWORLD_SAVES_DIR: /palworld/Pal/Saved/SaveGames
+      PALWORLD_BACKUP_DIR: /palworld/backups
+      PALWORLD_COMPOSE_DIR: /stack
+    ports:
+      - "127.0.0.1:${PANEL_API_PORT:-16824}:16824/tcp"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./palworld-data:/palworld:rw
+      - ./panel-state:/data/panel-state:rw
+      - ./:/stack:ro
+    depends_on:
+      - palworld
