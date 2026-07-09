@@ -803,6 +803,9 @@ func (a *App) detectVersion(inspect *dockerInspectResult) string {
 	if value := getenv("PALWORLD_VERSION", ""); value != "" {
 		return value
 	}
+	if value := steamBuildID(filepath.Join(a.cfg.DataDir, "steamapps", "appmanifest_2394010.acf")); value != "" {
+		return "Steam build " + value
+	}
 	if inspect != nil {
 		for _, key := range []string{"org.opencontainers.image.version", "version", "build_version"} {
 			if value := strings.TrimSpace(inspect.Config.Labels[key]); value != "" {
@@ -977,7 +980,7 @@ func readRconPacket(r io.Reader) (int32, int32, string, error) {
 }
 
 func parsePlayers(output string) []Player {
-	var players []Player
+	players := make([]Player, 0)
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(strings.ToLower(line), "name,") {
@@ -1025,10 +1028,10 @@ func (a *App) audit(level, source, message, actor string, metadata map[string]an
 func (a *App) auditRows(limit int) []LogEntry {
 	file, err := os.Open(a.cfg.AuditFile)
 	if err != nil {
-		return nil
+		return []LogEntry{}
 	}
 	defer file.Close()
-	var rows []LogEntry
+	rows := make([]LogEntry, 0)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		var row LogEntry
@@ -1071,7 +1074,7 @@ func (a *App) backupRows(ctx context.Context, limit int) []Backup {
 	if err != nil {
 		return []Backup{}
 	}
-	var rows []Backup
+	rows := make([]Backup, 0)
 	for _, entry := range entries {
 		fullPath := filepath.Join(a.cfg.BackupsDir, entry.Name())
 		info, err := entry.Info()
@@ -1398,16 +1401,9 @@ func parseMemoryUsage(value string) (float64, float64) {
 }
 
 func memoryToGB(value string) float64 {
-	fields := strings.Fields(strings.TrimSpace(value))
-	if len(fields) == 0 {
+	amount, unit := splitNumberUnit(value)
+	if amount == 0 {
 		return 0
-	}
-	amount, _ := strconv.ParseFloat(fields[0], 64)
-	unit := ""
-	if len(fields) > 1 {
-		unit = strings.ToLower(fields[1])
-	} else {
-		unit = strings.ToLower(strings.TrimLeft(fields[0], "0123456789."))
 	}
 	switch {
 	case strings.HasPrefix(unit, "ki"), unit == "kb":
@@ -1421,6 +1417,46 @@ func memoryToGB(value string) float64 {
 	default:
 		return amount / 1024 / 1024 / 1024
 	}
+}
+
+func splitNumberUnit(value string) (float64, string) {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return 0, ""
+	}
+	end := 0
+	for end < len(text) {
+		c := text[end]
+		if (c >= '0' && c <= '9') || c == '.' {
+			end++
+			continue
+		}
+		break
+	}
+	if end == 0 {
+		return 0, strings.ToLower(strings.TrimSpace(text))
+	}
+	amount, err := strconv.ParseFloat(text[:end], 64)
+	if err != nil {
+		return 0, strings.ToLower(strings.TrimSpace(text[end:]))
+	}
+	return amount, strings.ToLower(strings.TrimSpace(text[end:]))
+}
+
+func steamBuildID(manifestPath string) string {
+	raw, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return ""
+	}
+	for _, key := range []string{"buildid", "TargetBuildID"} {
+		for _, line := range strings.Split(string(raw), "\n") {
+			fields := strings.Fields(strings.ReplaceAll(line, "\"", ""))
+			if len(fields) >= 2 && fields[0] == key {
+				return fields[1]
+			}
+		}
+	}
+	return ""
 }
 
 func totalMemoryBytes() uint64 {
