@@ -12,7 +12,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/panel-api ./cmd/pa
 
 FROM alpine:3.21
 WORKDIR /app
-RUN apk add --no-cache ca-certificates docker-cli
+RUN apk add --no-cache ca-certificates docker-cli docker-cli-compose
 ENV PANEL_WEB_ROOT=/app/dist
 COPY --from=web /app/dist ./dist
 COPY --from=api /out/panel-api ./panel-api
