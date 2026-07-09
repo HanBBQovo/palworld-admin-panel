@@ -49,10 +49,13 @@ services:
       PALWORLD_RCON_HOST: palworld
       PANEL_WEB_ROOT: /app/dist
       PANEL_STATE_DIR: /data/panel-state
+      PANEL_DISPLAY_HOST: Docker host
+      PANEL_RCON_TIMEOUT_MS: ${PANEL_RCON_TIMEOUT_MS:-1800}
       PALWORLD_DATA_DIR: /palworld
       PALWORLD_SAVES_DIR: /palworld/Pal/Saved/SaveGames
       PALWORLD_BACKUP_DIR: /palworld/backups
       PALWORLD_COMPOSE_DIR: /stack
+      PANEL_ENV_FILE: /stack/.env
     ports:
       - "127.0.0.1:${PANEL_API_PORT:-16824}:16824/tcp"
     volumes:
