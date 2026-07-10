@@ -32,11 +32,55 @@ func (a *App) executeRcon(command string, timeout time.Duration) (RconCommandRes
 	if password == "" {
 		return RconCommandResult{}, errors.New("PALWORLD_ADMIN_PASSWORD 未配置，无法连接 RCON")
 	}
-	output, err := runRcon(a.cfg.RconHost, a.cfg.RconPort, password, command, timeout)
-	if err != nil {
-		return RconCommandResult{}, err
+	a.rconMu.Lock()
+	defer a.rconMu.Unlock()
+
+	output, err := a.runContainerRcon(command, timeout)
+	if err == nil {
+		return RconCommandResult{Command: command, Output: output, ExecutedAt: formatTime(time.Now())}, nil
+	}
+	output, directErr := runRcon(a.cfg.RconHost, a.cfg.RconPort, password, command, timeout)
+	if directErr != nil {
+		return RconCommandResult{}, fmt.Errorf("容器内 RCON 调用失败: %v；原生 RCON 调用也失败: %w", err, directErr)
 	}
 	return RconCommandResult{Command: command, Output: output, ExecutedAt: formatTime(time.Now())}, nil
+}
+
+func (a *App) runContainerRcon(command string, timeout time.Duration) (string, error) {
+	clientTimeout := time.Second
+	if timeout > 0 && timeout < clientTimeout {
+		clientTimeout = timeout
+	}
+	if clientTimeout < 500*time.Millisecond {
+		clientTimeout = 500 * time.Millisecond
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), clientTimeout+750*time.Millisecond)
+	defer cancel()
+
+	output, err := runCmd(
+		ctx,
+		"",
+		"docker",
+		"exec",
+		a.cfg.Container,
+		"rcon-cli",
+		"-c",
+		"/home/steam/server/rcon.yaml",
+		"-T",
+		clientTimeout.String(),
+		command,
+	)
+	text := normalizeRconOutput(string(output))
+	if text != "" {
+		return text, nil
+	}
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "i/o timeout") {
+			return "命令已提交，Palworld 未返回 RCON 结束包", nil
+		}
+		return "", err
+	}
+	return "OK", nil
 }
 
 func isAllowedRcon(command string) bool {
@@ -68,14 +112,14 @@ func runRcon(host string, port int, password, command string, timeout time.Durat
 	}
 	authed := false
 	for time.Now().Before(deadline) {
-		id, _, _, err := readRconPacket(conn)
+		id, typ, _, err := readRconPacket(conn)
 		if err != nil {
 			return "", fmt.Errorf("RCON 鉴权超时")
 		}
 		if id == -1 {
 			return "", fmt.Errorf("RCON 鉴权失败，请检查管理员密码")
 		}
-		if id == 1 {
+		if id == 1 && typ == 2 {
 			authed = true
 			break
 		}
@@ -86,35 +130,19 @@ func runRcon(host string, port int, password, command string, timeout time.Durat
 	if err := writeRconPacket(conn, 2, 2, command); err != nil {
 		return "", err
 	}
-	_ = writeRconPacket(conn, 3, 2, "")
-	var output strings.Builder
-	gotBody := false
 	for time.Now().Before(deadline) {
-		if gotBody {
-			_ = conn.SetReadDeadline(time.Now().Add(180 * time.Millisecond))
-		} else {
-			_ = conn.SetReadDeadline(deadline)
-		}
-		id, _, body, err := readRconPacket(conn)
+		_, _, body, err := readRconPacket(conn)
 		if err != nil {
-			if gotBody && isTimeout(err) {
-				break
-			}
 			return "", fmt.Errorf("RCON 连接超时")
 		}
-		if body != "" {
-			output.WriteString(body)
-			gotBody = true
-		}
-		if id == 3 && gotBody {
-			break
+		text := normalizeRconOutput(body)
+		if text != "" {
+			// Palworld often omits the terminating RCON packet. Management
+			// responses fit in one packet, so return the first valid body.
+			return text, nil
 		}
 	}
-	text := strings.TrimSpace(output.String())
-	if text == "" {
-		return "OK", nil
-	}
-	return text, nil
+	return "", fmt.Errorf("RCON 连接超时")
 }
 
 func writeRconPacket(w io.Writer, id, typ int32, body string) error {
@@ -154,7 +182,7 @@ func readRconPacket(r io.Reader) (int32, int32, string, error) {
 
 func parsePlayers(output string) []Player {
 	players := make([]Player, 0)
-	for _, line := range strings.Split(output, "\n") {
+	for _, line := range strings.Split(normalizeRconOutput(output), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(strings.ToLower(line), "name,") {
 			continue
@@ -165,31 +193,54 @@ func parsePlayers(output string) []Player {
 		}
 		name := strings.TrimSpace(parts[0])
 		playerID := strings.TrimSpace(parts[1])
-		steamID := strings.TrimSpace(parts[2])
+		rawSteamID := strings.TrimSpace(parts[2])
 		if name == "" || strings.EqualFold(name, "no online players") {
 			continue
 		}
 		id := playerID
 		if id == "" {
-			id = steamID
+			id = rawSteamID
 		}
 		if id == "" {
 			id = fmt.Sprintf("player-%d", len(players)+1)
 		}
 		platform := "Unknown"
-		if steamID != "" && steamID != "-" {
+		if strings.HasPrefix(rawSteamID, "steam_") || strings.HasPrefix(rawSteamID, "765") {
 			platform = "Steam"
 		}
+		manageable := isCompleteSteamID(rawSteamID)
+		steamID := strings.TrimPrefix(rawSteamID, "steam_")
+		if !manageable {
+			steamID = "-"
+		}
 		players = append(players, Player{
-			ID:        id,
-			Name:      name,
-			PlayerUID: orDefault(playerID, "-"),
-			Platform:  platform,
-			SteamID:   orDefault(steamID, "-"),
-			Status:    "online",
+			ID:         id,
+			Name:       name,
+			PlayerUID:  orDefault(playerID, "-"),
+			Platform:   platform,
+			SteamID:    orDefault(steamID, "-"),
+			Status:     "online",
+			Manageable: manageable,
 		})
 	}
 	return players
+}
+
+func normalizeRconOutput(value string) string {
+	return strings.TrimSpace(strings.ReplaceAll(value, "\x00", ""))
+}
+
+func isCompleteSteamID(value string) bool {
+	value = strings.TrimPrefix(strings.TrimSpace(value), "steam_")
+	if len(value) != 17 {
+		return false
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *App) audit(level, source, message, actor string, metadata map[string]any) {

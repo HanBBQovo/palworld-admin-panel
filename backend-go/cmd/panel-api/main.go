@@ -50,6 +50,7 @@ type Config struct {
 
 type App struct {
 	cfg           Config
+	rconMu        sync.Mutex
 	playersMu     sync.RWMutex
 	lastPlayers   []Player
 	lastPlayersAt time.Time
@@ -143,12 +144,13 @@ type ServerStatus struct {
 }
 
 type Player struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	PlayerUID string `json:"playerUid"`
-	Platform  string `json:"platform"`
-	SteamID   string `json:"steamId"`
-	Status    string `json:"status"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	PlayerUID  string `json:"playerUid"`
+	Platform   string `json:"platform"`
+	SteamID    string `json:"steamId"`
+	Status     string `json:"status"`
+	Manageable bool   `json:"manageable"`
 }
 
 type LogEntry struct {
@@ -232,7 +234,7 @@ func main() {
 
 func loadConfig() Config {
 	stateDir := getenv("PANEL_STATE_DIR", ".panel-state")
-	timeoutMs := getenvInt("PANEL_RCON_TIMEOUT_MS", 1800)
+	timeoutMs := getenvInt("PANEL_RCON_TIMEOUT_MS", 3000)
 	return Config{
 		Bind:           getenvAny("0.0.0.0", "PANEL_API_BIND", "HOST"),
 		Port:           getenvIntAny(16824, "PANEL_API_PORT", "APP_API_PORT", "PORT"),

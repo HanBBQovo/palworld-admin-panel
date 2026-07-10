@@ -49,6 +49,7 @@ export interface Player {
   platform: 'Steam' | 'Unknown'
   steamId: string
   status: 'online'
+  manageable: boolean
 }
 
 export interface LogEntry {
@@ -177,6 +178,7 @@ const players: Player[] = [
     platform: 'Steam',
     steamId: '76561198000000001',
     status: 'online',
+    manageable: true,
   },
 ]
 

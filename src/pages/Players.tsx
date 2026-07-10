@@ -27,9 +27,9 @@ export default function Players() {
   }
 
   const runPlayerAction = async (player: Player, action: 'kick' | 'ban') => {
-    const target = player.steamId && player.steamId !== '-' ? player.steamId : player.playerUid
-    if (!target || target === '-') {
-      showToast('error', '该玩家没有可用的 RCON 标识')
+    const target = player.steamId
+    if (!player.manageable || !target || target === '-') {
+      showToast('error', '游戏当前未返回完整 Steam ID，不能安全执行玩家操作')
       return
     }
     const command = `${action === 'kick' ? 'KickPlayer' : 'BanPlayer'} ${target}`
@@ -76,7 +76,9 @@ export default function Players() {
         <Alert>
           <ShieldAlert />
           <AlertTitle>玩家操作会立即生效</AlertTitle>
-          <AlertDescription>踢出和封禁均经过二次确认，并由后端在本机通过 RCON 执行。</AlertDescription>
+          <AlertDescription>
+            踢出和封禁均经过二次确认。若当前 Palworld 版本通过 RCON 截断 Steam ID，面板会禁用操作，避免误踢或误封。
+          </AlertDescription>
         </Alert>
 
         <PageSurface title="当前在线名单" description="Player UID 与 Steam ID 均直接来自 Palworld RCON。">
@@ -110,7 +112,8 @@ export default function Players() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          disabled={runningPlayerId === player.id}
+                          disabled={!player.manageable || runningPlayerId === player.id}
+                          title={player.manageable ? '踢出该玩家' : '游戏未返回完整 Steam ID'}
                           onClick={() => runPlayerAction(player, 'kick')}
                         >
                           <UserX data-icon="inline-start" />
@@ -120,7 +123,8 @@ export default function Players() {
                           type="button"
                           variant="destructive"
                           size="sm"
-                          disabled={runningPlayerId === player.id}
+                          disabled={!player.manageable || runningPlayerId === player.id}
+                          title={player.manageable ? '封禁该玩家' : '游戏未返回完整 Steam ID'}
                           onClick={() => runPlayerAction(player, 'ban')}
                         >
                           <Ban data-icon="inline-start" />

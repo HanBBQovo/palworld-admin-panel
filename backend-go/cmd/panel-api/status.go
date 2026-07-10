@@ -84,16 +84,20 @@ func (a *App) refreshPlayers() []Player {
 }
 
 func (a *App) loadPlayers() ([]Player, error) {
+	a.playersMu.Lock()
+	defer a.playersMu.Unlock()
+	if !a.lastPlayersAt.IsZero() && time.Since(a.lastPlayersAt) <= 2*time.Second {
+		return append([]Player(nil), a.lastPlayers...), nil
+	}
+
 	result, err := a.executeRcon("ShowPlayers", a.cfg.RconTimeout)
 	if err != nil {
 		return nil, err
 	}
 	players := parsePlayers(result.Output)
-	a.playersMu.Lock()
 	a.lastPlayers = players
 	a.lastPlayersAt = time.Now()
-	a.playersMu.Unlock()
-	return players, nil
+	return append([]Player(nil), players...), nil
 }
 
 func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {

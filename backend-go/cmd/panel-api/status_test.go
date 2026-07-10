@@ -21,6 +21,23 @@ func TestParsePlayersKeepsOnlyRconFields(t *testing.T) {
 	if player.Name != "Alice" || player.PlayerUID != "uid-1" || player.SteamID != "76561198000000001" {
 		t.Fatalf("unexpected player: %#v", player)
 	}
+	if !player.Manageable {
+		t.Fatalf("expected player with complete Steam ID to be manageable")
+	}
+}
+
+func TestParsePlayersHandlesPalworldNullPaddedSteamID(t *testing.T) {
+	players := parsePlayers("name,playeruid,steamid\n奶思兔米鱿,F532F39D000000000000000000000000,76561199\x00\x00\x00\x00\n")
+	if len(players) != 1 {
+		t.Fatalf("expected one player, got %d", len(players))
+	}
+	player := players[0]
+	if player.Name != "奶思兔米鱿" || player.PlayerUID != "F532F39D000000000000000000000000" {
+		t.Fatalf("unexpected player: %#v", player)
+	}
+	if player.SteamID != "-" || player.Manageable {
+		t.Fatalf("expected truncated Steam ID to be unavailable: %#v", player)
+	}
 }
 
 func TestParseDiskUsageWithWrappedFilesystemName(t *testing.T) {
