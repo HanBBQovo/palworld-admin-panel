@@ -135,14 +135,15 @@ func (a *App) maintenance(action, actor string) (map[string]any, error) {
 	case action == "server:update":
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 		defer cancel()
-		if _, err := runCmd(ctx, a.cfg.ComposeDir, "docker", "compose", "pull", "palworld"); err != nil {
+		composeArgs := []string{"compose", "-p", a.cfg.ComposeProject}
+		if _, err := runCmd(ctx, a.cfg.ComposeDir, "docker", append(composeArgs, "pull", "palworld")...); err != nil {
 			return fail(err)
 		}
-		if _, err := runCmd(ctx, a.cfg.ComposeDir, "docker", "compose", "up", "-d", "palworld"); err != nil {
+		if _, err := runCmd(ctx, a.cfg.ComposeDir, "docker", append(composeArgs, "up", "-d", "palworld")...); err != nil {
 			return fail(err)
 		}
-		a.audit("warn", "update", "已执行服务端更新流程", actor, nil)
-		return success("更新流程已执行")
+		a.audit("warn", "update", "已执行服务端更新流程，Compose 项目: "+a.cfg.ComposeProject, actor, nil)
+		return success("更新容器已重建，Palworld 正在完成启动与健康检查")
 	case action == "backup:create":
 		a.finishOperation(op, "delegated", "转入备份创建流程")
 		return a.createBackup(actor)

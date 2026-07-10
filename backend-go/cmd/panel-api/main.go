@@ -19,32 +19,33 @@ import (
 )
 
 type Config struct {
-	Bind         string
-	Port         int
-	AuthPassword string
-	TokenSecret  string
-	TokenTTL     time.Duration
-	CorsOrigin   string
-	WebRoot      string
-	StateDir     string
-	SettingsFile string
-	AuditFile    string
-	OpsFile      string
-	DataDir      string
-	SavesDir     string
-	BackupsDir   string
-	ComposeDir   string
-	EnvFile      string
-	Container    string
-	RconHost     string
-	RconPort     int
-	RconPassword string
-	RconTimeout  time.Duration
-	AllowRawRcon bool
-	WriteEnv     bool
-	DisplayHost  string
-	PublicDomain string
-	Timezone     string
+	Bind           string
+	Port           int
+	AuthPassword   string
+	TokenSecret    string
+	TokenTTL       time.Duration
+	CorsOrigin     string
+	WebRoot        string
+	StateDir       string
+	SettingsFile   string
+	AuditFile      string
+	OpsFile        string
+	DataDir        string
+	SavesDir       string
+	BackupsDir     string
+	ComposeDir     string
+	ComposeProject string
+	EnvFile        string
+	Container      string
+	RconHost       string
+	RconPort       int
+	RconPassword   string
+	RconTimeout    time.Duration
+	AllowRawRcon   bool
+	WriteEnv       bool
+	DisplayHost    string
+	PublicDomain   string
+	Timezone       string
 }
 
 type App struct {
@@ -233,32 +234,33 @@ func loadConfig() Config {
 	stateDir := getenv("PANEL_STATE_DIR", ".panel-state")
 	timeoutMs := getenvInt("PANEL_RCON_TIMEOUT_MS", 1800)
 	return Config{
-		Bind:         getenvAny("0.0.0.0", "PANEL_API_BIND", "HOST"),
-		Port:         getenvIntAny(16824, "PANEL_API_PORT", "APP_API_PORT", "PORT"),
-		AuthPassword: getenv("PANEL_AUTH_PASSWORD", "change-panel-password"),
-		TokenSecret:  getenvAny("", "PANEL_TOKEN_SECRET", "PANEL_JWT_SECRET", "PANEL_AUTH_PASSWORD"),
-		TokenTTL:     time.Duration(getenvInt("PANEL_TOKEN_TTL_SECONDS", 60*60*24*7)) * time.Second,
-		CorsOrigin:   getenv("PANEL_CORS_ORIGIN", "*"),
-		WebRoot:      getenv("PANEL_WEB_ROOT", "dist"),
-		StateDir:     stateDir,
-		SettingsFile: getenv("PANEL_SETTINGS_FILE", filepath.Join(stateDir, "settings.json")),
-		AuditFile:    getenv("PANEL_AUDIT_FILE", filepath.Join(stateDir, "audit.jsonl")),
-		OpsFile:      getenv("PANEL_OPS_FILE", filepath.Join(stateDir, "operations.jsonl")),
-		DataDir:      getenv("PALWORLD_DATA_DIR", "/palworld"),
-		SavesDir:     getenvAny("/palworld/Pal/Saved/SaveGames", "PALWORLD_SAVES_DIR", "PALWORLD_SAVE_DIR"),
-		BackupsDir:   getenv("PALWORLD_BACKUP_DIR", "/palworld/backups"),
-		ComposeDir:   getenv("PALWORLD_COMPOSE_DIR", "."),
-		EnvFile:      getenv("PANEL_ENV_FILE", filepath.Join(getenv("PALWORLD_COMPOSE_DIR", "."), ".env")),
-		Container:    getenv("PALWORLD_CONTAINER", "palworld-server"),
-		RconHost:     getenv("PALWORLD_RCON_HOST", "127.0.0.1"),
-		RconPort:     getenvIntAny(25575, "PALWORLD_RCON_PORT", "RCON_PORT"),
-		RconPassword: getenvAny("", "PALWORLD_ADMIN_PASSWORD", "ADMIN_PASSWORD"),
-		RconTimeout:  time.Duration(timeoutMs) * time.Millisecond,
-		AllowRawRcon: parseBool(getenv("PANEL_ALLOW_RAW_RCON", ""), false),
-		WriteEnv:     parseBool(getenv("PANEL_WRITE_ENV", ""), true),
-		DisplayHost:  getenv("PANEL_DISPLAY_HOST", ""),
-		PublicDomain: getenvAny("", "PALWORLD_PUBLIC_DOMAIN", "PUBLIC_DOMAIN"),
-		Timezone:     getenv("TZ", "Asia/Shanghai"),
+		Bind:           getenvAny("0.0.0.0", "PANEL_API_BIND", "HOST"),
+		Port:           getenvIntAny(16824, "PANEL_API_PORT", "APP_API_PORT", "PORT"),
+		AuthPassword:   getenv("PANEL_AUTH_PASSWORD", "change-panel-password"),
+		TokenSecret:    getenvAny("", "PANEL_TOKEN_SECRET", "PANEL_JWT_SECRET", "PANEL_AUTH_PASSWORD"),
+		TokenTTL:       time.Duration(getenvInt("PANEL_TOKEN_TTL_SECONDS", 60*60*24*7)) * time.Second,
+		CorsOrigin:     getenv("PANEL_CORS_ORIGIN", "*"),
+		WebRoot:        getenv("PANEL_WEB_ROOT", "dist"),
+		StateDir:       stateDir,
+		SettingsFile:   getenv("PANEL_SETTINGS_FILE", filepath.Join(stateDir, "settings.json")),
+		AuditFile:      getenv("PANEL_AUDIT_FILE", filepath.Join(stateDir, "audit.jsonl")),
+		OpsFile:        getenv("PANEL_OPS_FILE", filepath.Join(stateDir, "operations.jsonl")),
+		DataDir:        getenv("PALWORLD_DATA_DIR", "/palworld"),
+		SavesDir:       getenvAny("/palworld/Pal/Saved/SaveGames", "PALWORLD_SAVES_DIR", "PALWORLD_SAVE_DIR"),
+		BackupsDir:     getenv("PALWORLD_BACKUP_DIR", "/palworld/backups"),
+		ComposeDir:     getenv("PALWORLD_COMPOSE_DIR", "."),
+		ComposeProject: getenvAny("palworld-server", "PALWORLD_COMPOSE_PROJECT", "PANEL_COMPOSE_PROJECT", "COMPOSE_PROJECT_NAME"),
+		EnvFile:        getenv("PANEL_ENV_FILE", filepath.Join(getenv("PALWORLD_COMPOSE_DIR", "."), ".env")),
+		Container:      getenv("PALWORLD_CONTAINER", "palworld-server"),
+		RconHost:       getenv("PALWORLD_RCON_HOST", "127.0.0.1"),
+		RconPort:       getenvIntAny(25575, "PALWORLD_RCON_PORT", "RCON_PORT"),
+		RconPassword:   getenvAny("", "PALWORLD_ADMIN_PASSWORD", "ADMIN_PASSWORD"),
+		RconTimeout:    time.Duration(timeoutMs) * time.Millisecond,
+		AllowRawRcon:   parseBool(getenv("PANEL_ALLOW_RAW_RCON", ""), false),
+		WriteEnv:       parseBool(getenv("PANEL_WRITE_ENV", ""), true),
+		DisplayHost:    getenv("PANEL_DISPLAY_HOST", ""),
+		PublicDomain:   getenvAny("", "PALWORLD_PUBLIC_DOMAIN", "PUBLIC_DOMAIN"),
+		Timezone:       getenv("TZ", "Asia/Shanghai"),
 	}
 }
 
