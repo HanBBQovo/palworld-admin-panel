@@ -22,7 +22,7 @@ interface ActionItem {
 
 const ACTIONS: ActionItem[] = [
   { key: 'rcon:save', title: '保存世界', description: '通过 RCON Save 立即保存当前世界状态。', icon: Save, risk: 'low' },
-  { key: 'server:restart', title: '重启容器', description: 'docker compose restart，会触发 UPDATE_ON_BOOT 检查。', icon: RotateCcw, risk: 'medium' },
+  { key: 'server:restart', title: '应用配置并重启', description: '按当前 .env 强制重建游戏容器，使新密码和游戏参数生效。', icon: RotateCcw, risk: 'medium' },
   { key: 'server:update', title: '拉取更新', description: 'docker compose pull + 重建容器，用于更新镜像与服务端。', icon: UploadCloud, risk: 'medium' },
   { key: 'server:shutdown', title: '优雅关服', description: '通过 RCON Shutdown 给玩家预告后关闭服务。', icon: Power, risk: 'high' },
 ]

@@ -127,19 +127,18 @@ func (a *App) maintenance(action, actor string) (map[string]any, error) {
 	case action == "server:restart":
 		ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 		defer cancel()
-		if _, err := runCmd(ctx, "", "docker", "restart", a.cfg.Container); err != nil {
+		if _, err := a.runCompose(ctx, "up", "-d", "--force-recreate", "palworld"); err != nil {
 			return fail(err)
 		}
-		a.audit("warn", "server", "已重启容器 "+a.cfg.Container, actor, nil)
-		return success("容器重启命令已执行")
+		a.audit("warn", "server", "已按当前 .env 重建容器 "+a.cfg.Container, actor, nil)
+		return success("游戏容器已按最新配置重建，Palworld 正在启动")
 	case action == "server:update":
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 		defer cancel()
-		composeArgs := []string{"compose", "-p", a.cfg.ComposeProject}
-		if _, err := runCmd(ctx, a.cfg.ComposeDir, "docker", append(composeArgs, "pull", "palworld")...); err != nil {
+		if _, err := a.runCompose(ctx, "pull", "palworld"); err != nil {
 			return fail(err)
 		}
-		if _, err := runCmd(ctx, a.cfg.ComposeDir, "docker", append(composeArgs, "up", "-d", "palworld")...); err != nil {
+		if _, err := a.runCompose(ctx, "up", "-d", "palworld"); err != nil {
 			return fail(err)
 		}
 		a.audit("warn", "update", "已执行服务端更新流程，Compose 项目: "+a.cfg.ComposeProject, actor, nil)
@@ -153,6 +152,11 @@ func (a *App) maintenance(action, actor string) (map[string]any, error) {
 	default:
 		return fail(APIError{Status: http.StatusBadRequest, Message: "未知维护动作: " + action})
 	}
+}
+
+func (a *App) runCompose(ctx context.Context, args ...string) ([]byte, error) {
+	base := []string{"compose", "-p", a.cfg.ComposeProject}
+	return runCmd(ctx, a.cfg.ComposeDir, "docker", append(base, args...)...)
 }
 
 func copyDir(src, dst string) error {
