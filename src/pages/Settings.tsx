@@ -12,7 +12,6 @@ import { Combobox } from '@/components/ui/combobox'
 import { Input } from '@/components/ui/input'
 import { MultiSelect } from '@/components/ui/multi-select'
 import { Switch } from '@/components/ui/switch'
-import { useConfirm } from '@/components/ui/use-confirm'
 import { useResource } from '@/lib/use-resource'
 
 type Tab = 'basic' | 'gameplay' | 'automation' | 'security'
@@ -47,7 +46,7 @@ export default function Settings() {
   const [activeTab, setActiveTab] = useState<Tab>('basic')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [settings, setSettings] = useState<ServerSettings | null>(null)
-  const confirm = useConfirm()
+  const [saving, setSaving] = useState(false)
   const resource = useResource(getSettings, [])
 
   useEffect(() => {
@@ -60,18 +59,16 @@ export default function Settings() {
 
   const save = async () => {
     if (!settings) return
-    const confirmed = await confirm({
-      title: '保存 Palworld 配置',
-      description: '保存后后端应更新 docker-compose.yml/.env，并重建或重启容器使配置生效。确认保存？',
-      confirmText: '保存配置',
-    })
-    if (!confirmed) return
+    setSaving(true)
+    setMessage(null)
     try {
       const next = await saveSettings(settings)
       setSettings(next)
-      setMessage({ type: 'success', text: '配置已保存；需要重启游戏容器的参数仍处于待应用状态' })
+      setMessage({ type: 'success', text: '配置已经写入服务器；密码和游戏参数需要重启 Palworld 后生效。' })
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : '保存失败' })
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -92,7 +89,7 @@ export default function Settings() {
 
   return (
     <TabbedSettingsPage
-      title="参数设置"
+      title="服务器配置"
       description="编辑服务器基础信息、游戏倍率、自动维护和安全边界。"
       tabs={TABS}
       activeTab={activeTab}
@@ -100,19 +97,28 @@ export default function Settings() {
       indicatorId="palworld-settings-tabs"
       message={message}
       headerActions={
-        <Button type="button" className="gap-2" onClick={save}>
+        <Button type="button" onClick={save} disabled={saving}>
           <Save className="h-4 w-4" />
-          保存配置
+          {saving ? '正在保存...' : '保存配置'}
         </Button>
       }
       extraContent={
-        <Alert>
-          <ShieldAlert className="h-4 w-4" />
-          <AlertTitle>配置来源优先级</AlertTitle>
-          <AlertDescription>
-            当前推荐通过环境变量生成 PalWorldSettings.ini。手动编辑 ini 前必须停服，并设置 DISABLE_GENERATE_SETTINGS=true，否则启动时会被覆盖。
-          </AlertDescription>
-        </Alert>
+        <div className="flex flex-col gap-3">
+          {message ? (
+            <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
+              <Save />
+              <AlertTitle>{message.type === 'error' ? '保存失败' : '保存成功'}</AlertTitle>
+              <AlertDescription>{message.text}</AlertDescription>
+            </Alert>
+          ) : null}
+          <Alert>
+            <ShieldAlert />
+            <AlertTitle>保存与生效是两个步骤</AlertTitle>
+            <AlertDescription>
+              点击保存会立即写入服务器配置文件；服务器密码、管理员密码和游戏参数需要在“维护任务”中重启 Palworld 后生效。
+            </AlertDescription>
+          </Alert>
+        </div>
       }
     >
       {activeTab === 'basic' ? (
@@ -141,10 +147,10 @@ export default function Settings() {
             </div>
             <div className="grid gap-5 sm:grid-cols-2">
               <FormField label="服务器密码" htmlFor="server-password">
-              <Input id="server-password" type="password" autoComplete="new-password" value={settings.serverPassword} onChange={(event) => update('serverPassword', event.target.value)} />
+                <Input id="server-password" type="text" autoComplete="off" spellCheck={false} value={settings.serverPassword} onChange={(event) => update('serverPassword', event.target.value)} />
               </FormField>
               <FormField label="管理员密码" htmlFor="admin-password">
-              <Input id="admin-password" type="password" autoComplete="new-password" value={settings.adminPassword} onChange={(event) => update('adminPassword', event.target.value)} />
+                <Input id="admin-password" type="text" autoComplete="off" spellCheck={false} value={settings.adminPassword} onChange={(event) => update('adminPassword', event.target.value)} />
               </FormField>
             </div>
             <FormField label="允许平台" description="需要保留括号格式，后端写入时应转成 (Steam,Xbox,PS5,Mac)。">

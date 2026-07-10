@@ -25,10 +25,14 @@ func (a *App) executeRcon(command string, timeout time.Duration) (RconCommandRes
 	if !a.cfg.AllowRawRcon && !isAllowedRcon(command) {
 		return RconCommandResult{}, APIError{Status: http.StatusBadRequest, Message: "该 RCON 命令不在白名单内；如需开放任意命令，请设置 PANEL_ALLOW_RAW_RCON=true"}
 	}
-	if a.cfg.RconPassword == "" {
+	password := a.cfg.RconPassword
+	if savedPassword := strings.TrimSpace(a.readSettings().AdminPassword); savedPassword != "" {
+		password = savedPassword
+	}
+	if password == "" {
 		return RconCommandResult{}, errors.New("PALWORLD_ADMIN_PASSWORD 未配置，无法连接 RCON")
 	}
-	output, err := runRcon(a.cfg.RconHost, a.cfg.RconPort, a.cfg.RconPassword, command, timeout)
+	output, err := runRcon(a.cfg.RconHost, a.cfg.RconPort, password, command, timeout)
 	if err != nil {
 		return RconCommandResult{}, err
 	}
