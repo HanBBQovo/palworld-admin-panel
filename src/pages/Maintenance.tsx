@@ -37,6 +37,7 @@ export default function Maintenance() {
   const { data, refresh } = useResource(getServerStatus, [])
   const [policy, setPolicy] = useState<MaintenancePolicy | null>(null)
   const [savingPolicy, setSavingPolicy] = useState(false)
+  const [runningAction, setRunningAction] = useState<string | null>(null)
   const confirm = useConfirm()
   const { showToast } = useGlobalToast()
 
@@ -77,15 +78,22 @@ export default function Maintenance() {
       variant: action.risk === 'high' ? 'destructive' : 'default',
     })
     if (!ok) return
-    const result = await runMaintenanceAction(action.key)
-    showToast(result.ok ? 'success' : 'error', result.message)
-    refresh()
+    setRunningAction(action.key)
+    try {
+      const result = await runMaintenanceAction(action.key)
+      showToast(result.ok ? 'success' : 'error', result.message)
+      refresh()
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : '维护动作执行失败')
+    } finally {
+      setRunningAction(null)
+    }
   }
 
   return (
     <PageShell
       title="维护更新"
-      description="集中执行保存、重启、更新、关服，以及查看自动维护策略。"
+      description="执行保存、重启、更新与关服，并管理自动维护窗口。"
       width="7xl"
       actions={
         <Button type="button" variant="outline" className="gap-2" onClick={refresh}>
@@ -181,8 +189,9 @@ export default function Maintenance() {
                     variant={action.risk === 'high' ? 'destructive' : 'default'}
                     className="w-full"
                     onClick={() => execute(action)}
+                    disabled={runningAction !== null}
                   >
-                    执行
+                    {runningAction === action.key ? '执行中' : '执行'}
                   </Button>
                 </div>
               </PageSurface>

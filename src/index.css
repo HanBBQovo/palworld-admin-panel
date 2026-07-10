@@ -10,8 +10,8 @@
     --card-foreground: 222.2 84% 4.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 174 72% 34%;
+    --primary-foreground: 0 0% 100%;
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
     --muted: 210 40% 96.1%;
@@ -22,13 +22,13 @@
     --destructive-foreground: 210 40% 98%;
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --chart-1: 221.2 83.2% 53.3%;
+    --ring: 174 72% 34%;
+    --chart-1: 174 72% 34%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
-    --radius: 0.625rem;
+    --radius: 0.5rem;
     --sidebar-bg: 220 20% 97%;
     --sidebar-active: 221.2 83.2% 53.3%;
     --font-ui-cjk: "Noto Sans SC UI Subset";
@@ -40,8 +40,8 @@
     --card-foreground: 210 33% 98%;
     --popover: 222 27% 11.5%;
     --popover-foreground: 210 33% 98%;
-    --primary: 199 96% 68%;
-    --primary-foreground: 222 46% 11%;
+    --primary: 171 70% 48%;
+    --primary-foreground: 180 50% 8%;
     --secondary: 222 24% 15%;
     --secondary-foreground: 210 33% 98%;
     --muted: 222 21% 14%;
@@ -52,8 +52,8 @@
     --destructive-foreground: 210 40% 98%;
     --border: 217 23% 20%;
     --input: 217 21% 18%;
-    --ring: 199 96% 68%;
-    --chart-1: 199 96% 68%;
+    --ring: 171 70% 48%;
+    --chart-1: 171 70% 48%;
     --chart-2: 169 76% 56%;
     --chart-3: 253 88% 72%;
     --chart-4: 41 100% 66%;
@@ -109,7 +109,7 @@ html[data-noto-sc-full="1"] {
   }
 
   .ops-subnav {
-    @apply flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-card/95 px-3 py-3 shadow-sm;
+    @apply flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-card px-3 py-3;
   }
 
   .ops-subnav-button {
@@ -129,11 +129,11 @@ html[data-noto-sc-full="1"] {
   }
 
   .ops-stat-card {
-    @apply rounded-2xl border border-border/70 bg-card/95 px-4 py-4 shadow-sm;
+    @apply rounded-lg border border-border/70 bg-card px-4 py-4;
   }
 
   .ops-surface {
-    @apply overflow-hidden rounded-2xl border border-border/80 bg-card/95 shadow-sm;
+    @apply overflow-hidden rounded-lg border border-border/80 bg-card;
   }
 
   .ops-surface-header {
@@ -214,6 +214,35 @@ html.theme-switching *,
 html.theme-switching *::before,
 html.theme-switching *::after {
   transition: none !important;
+}
+
+.auth-bg {
+  background: hsl(var(--muted)) !important;
+  animation: none !important;
+}
+
+.auth-bg::before {
+  display: none;
+}
+
+.glass-card {
+  background: hsl(var(--card));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-color: hsl(var(--border));
+  box-shadow: 0 18px 48px hsl(222 20% 10% / 0.12);
+}
+
+.dark body,
+.dark .dashboard-shell,
+.dark .dashboard-aside,
+.dark .dashboard-mobile-drawer,
+.dark .dashboard-header,
+.dark .ops-subnav,
+.dark .ops-stat-card,
+.dark .ops-surface,
+.dark .ops-table-shell {
+  background: hsl(var(--background));
 }
 
 /* Animated gradient background for login/register */

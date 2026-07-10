@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { Ban, RefreshCw, ShieldAlert, UserX } from 'lucide-react'
 
-import { getPlayers, type Player } from '@/api/palworld'
+import { getPlayers, getServerStatus, runRconCommand, type Player } from '@/api/palworld'
 import { InlineLoader } from '@/components/PageLoader'
 import { PageShell, PageStat, PageStatStrip, PageSurface } from '@/components/layout/PageScaffold'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -14,92 +15,115 @@ import { useGlobalToast } from '@/components/ui/use-global-toast'
 import { useResource } from '@/lib/use-resource'
 
 export default function Players() {
-  const { data, loading, error, refresh } = useResource(getPlayers, [])
+  const players = useResource(getPlayers, [])
+  const status = useResource(getServerStatus, [])
+  const [runningPlayerId, setRunningPlayerId] = useState<string | null>(null)
   const confirm = useConfirm()
   const { showToast } = useGlobalToast()
-  const onlinePlayers = (data ?? []).filter((player) => player.status === 'online')
+
+  const refreshAll = () => {
+    players.refresh()
+    status.refresh()
+  }
 
   const runPlayerAction = async (player: Player, action: 'kick' | 'ban') => {
+    const target = player.steamId && player.steamId !== '-' ? player.steamId : player.playerUid
+    if (!target || target === '-') {
+      showToast('error', '该玩家没有可用的 RCON 标识')
+      return
+    }
+    const command = `${action === 'kick' ? 'KickPlayer' : 'BanPlayer'} ${target}`
     const confirmed = await confirm({
       title: action === 'kick' ? '踢出玩家' : '封禁玩家',
-      description: `确认对 ${player.name} 执行 ${action === 'kick' ? 'KickPlayer' : 'BanPlayer'}？真实后端接入后会通过 RCON 执行。`,
+      description: `将通过 RCON 执行：${command}`,
       confirmText: action === 'kick' ? '踢出' : '封禁',
       variant: action === 'ban' ? 'destructive' : 'default',
     })
     if (!confirmed) return
-    showToast('success', `${player.name} 的 ${action === 'kick' ? '踢出' : '封禁'} 指令已提交`)
+
+    setRunningPlayerId(player.id)
+    try {
+      const result = await runRconCommand(command)
+      showToast('success', result.output || `${player.name} 操作完成`)
+      refreshAll()
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : '玩家操作失败')
+    } finally {
+      setRunningPlayerId(null)
+    }
   }
 
   return (
     <PageShell
-      title="玩家管理"
-      description="查看在线玩家，并为后端 RCON 接入预留踢出、封禁和传送操作。"
+      title="在线玩家"
+      description="来自 RCON ShowPlayers 的实时名单与管理操作。"
       width="7xl"
       actions={
-        <Button type="button" variant="outline" className="gap-2" onClick={refresh} disabled={loading}>
-          <RefreshCw className={loading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
+        <Button type="button" variant="outline" onClick={refreshAll} disabled={players.loading}>
+          <RefreshCw data-icon="inline-start" className={players.loading ? 'animate-spin' : undefined} />
           刷新玩家
         </Button>
       }
     >
-      <div className="flex flex-col gap-6">
-        <Alert>
-          <ShieldAlert className="h-4 w-4" />
-          <AlertTitle>危险玩家操作需要二次确认</AlertTitle>
-          <AlertDescription>
-            前端已统一使用确认弹窗；后端接入时仍需记录操作者、命令、目标 SteamID 和执行结果。
-          </AlertDescription>
-        </Alert>
-
+      <div className="flex flex-col gap-5">
         <PageStatStrip>
-          <PageStat label="在线玩家" value={onlinePlayers.length} note="来自 ShowPlayers / REST players" />
-          <PageStat label="最大人数" value="32" note="PLAYERS 环境变量" />
-          <PageStat label="允许平台" value="4" note="Steam / Xbox / PS5 / Mac" />
-          <PageStat label="管理动作" value="Kick / Ban" note="后端通过 RCON 执行" />
+          <PageStat label="在线玩家" value={players.data?.length ?? 0} note="实时 RCON 查询" />
+          <PageStat label="服务器容量" value={status.data?.playersMax ?? '-'} note="当前配置上限" />
+          <PageStat label="玩家数据源" value="ShowPlayers" note="不展示 RCON 未提供的伪字段" />
+          <PageStat label="可用操作" value="Kick / Ban" note="执行结果写入审计日志" />
         </PageStatStrip>
 
-        <PageSurface title="在线列表" description="当前 mock 使用部署快照，真实后端接入后可定时刷新。">
-          {error ? (
-            <ErrorState message={error} onRetry={refresh} />
-          ) : loading && !data ? (
-            <div className="flex h-48 items-center justify-center">
-              <InlineLoader />
-            </div>
-          ) : !onlinePlayers.length ? (
-            <EmptyState title="当前没有玩家在线" description="服务器已经可连接，等待玩家通过 域名:8211 或配置的公网地址加入。" />
+        <Alert>
+          <ShieldAlert />
+          <AlertTitle>玩家操作会立即生效</AlertTitle>
+          <AlertDescription>踢出和封禁均经过二次确认，并由后端在本机通过 RCON 执行。</AlertDescription>
+        </Alert>
+
+        <PageSurface title="当前在线名单" description="Player UID 与 Steam ID 均直接来自 Palworld RCON。">
+          {players.error ? (
+            <ErrorState message={players.error} onRetry={players.refresh} />
+          ) : players.loading && !players.data ? (
+            <div className="flex h-48 items-center justify-center"><InlineLoader /></div>
+          ) : !players.data?.length ? (
+            <EmptyState title="当前没有玩家在线" description="服务器可用时，这里会显示通过 RCON 获取的实时玩家名单。" />
           ) : (
-            <Table className="min-w-[960px]">
+            <Table className="min-w-[760px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[240px]">玩家</TableHead>
-                  <TableHead className="w-[110px]">平台</TableHead>
-                  <TableHead className="w-[80px]">等级</TableHead>
-                  <TableHead className="w-[150px]">公会</TableHead>
-                  <TableHead>位置</TableHead>
-                  <TableHead className="w-[100px]">延迟</TableHead>
-                  <TableHead className="w-[190px] text-right">操作</TableHead>
+                  <TableHead>玩家</TableHead>
+                  <TableHead>平台</TableHead>
+                  <TableHead>Player UID</TableHead>
+                  <TableHead>Steam ID</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {onlinePlayers.map((player) => (
+                {players.data.map((player) => (
                   <TableRow key={player.id}>
-                    <TableCell className="min-w-[240px]">
-                      <div className="font-medium">{player.name}</div>
-                      <div className="font-mono text-xs text-muted-foreground">{player.steamId}</div>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap"><Badge variant="secondary">{player.platform}</Badge></TableCell>
-                    <TableCell className="whitespace-nowrap">{player.level}</TableCell>
-                    <TableCell>{player.guild}</TableCell>
-                    <TableCell>{player.location}</TableCell>
-                    <TableCell className="whitespace-nowrap">{player.ping} ms</TableCell>
+                    <TableCell className="font-medium">{player.name}</TableCell>
+                    <TableCell><Badge variant="secondary">{player.platform}</Badge></TableCell>
+                    <TableCell className="font-mono text-xs">{player.playerUid}</TableCell>
+                    <TableCell className="font-mono text-xs">{player.steamId}</TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-2 whitespace-nowrap">
-                        <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => runPlayerAction(player, 'kick')}>
-                          <UserX className="h-4 w-4" />
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={runningPlayerId === player.id}
+                          onClick={() => runPlayerAction(player, 'kick')}
+                        >
+                          <UserX data-icon="inline-start" />
                           踢出
                         </Button>
-                        <Button type="button" variant="destructive" size="sm" className="gap-2" onClick={() => runPlayerAction(player, 'ban')}>
-                          <Ban className="h-4 w-4" />
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          disabled={runningPlayerId === player.id}
+                          onClick={() => runPlayerAction(player, 'ban')}
+                        >
+                          <Ban data-icon="inline-start" />
                           封禁
                         </Button>
                       </div>

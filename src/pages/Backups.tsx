@@ -1,6 +1,6 @@
-import { Archive, Download, RefreshCw, RotateCcw, ShieldAlert } from 'lucide-react'
+import { Archive, RefreshCw, RotateCcw, ShieldAlert } from 'lucide-react'
 
-import { getBackups, runMaintenanceAction, type Backup } from '@/api/palworld'
+import { getBackups, getServerStatus, runMaintenanceAction, type Backup } from '@/api/palworld'
 import { InlineLoader } from '@/components/PageLoader'
 import { PageShell, PageStat, PageStatStrip, PageSurface } from '@/components/layout/PageScaffold'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -21,6 +21,7 @@ const statusVariant: Record<Backup['status'], 'default' | 'secondary' | 'destruc
 
 export default function Backups() {
   const { data, loading, error, refresh } = useResource(getBackups, [])
+  const status = useResource(getServerStatus, [])
   const confirm = useConfirm()
   const { showToast } = useGlobalToast()
 
@@ -29,14 +30,19 @@ export default function Backups() {
       title: label,
       description: destructive
         ? '恢复备份会覆盖当前世界存档。执行前建议确认没有玩家在线，并额外保留一份当前 SaveGames。'
-        : '确认提交该维护动作？真实后端接入后会在游戏服务器所在主机或同 Compose 网络内执行 docker/rcon 脚本。',
+        : '确认提交该维护动作？面板后端会在游戏服务器主机上执行对应的存档和 RCON 操作。',
       confirmText: label,
       variant: destructive ? 'destructive' : 'default',
     })
     if (!ok) return
-    const result = await runMaintenanceAction(action)
-    showToast(result.ok ? 'success' : 'error', result.message)
-    refresh()
+    try {
+      const result = await runMaintenanceAction(action)
+      showToast(result.ok ? 'success' : 'error', result.message)
+      refresh()
+      status.refresh()
+    } catch (actionError) {
+      showToast('error', actionError instanceof Error ? actionError.message : '备份操作失败')
+    }
   }
 
   const readyCount = (data ?? []).filter((item) => item.status === 'ready').length
@@ -44,7 +50,7 @@ export default function Backups() {
   return (
     <PageShell
       title="备份恢复"
-      description="管理 Palworld 存档备份、手动备份和恢复动作。当前服务器每小时自动备份，保留 72 份。"
+      description="管理 Palworld 世界存档的自动备份、手动快照与恢复。"
       width="7xl"
       actions={
         <>
@@ -69,13 +75,13 @@ export default function Backups() {
         </Alert>
 
         <PageStatStrip>
-          <PageStat label="自动备份" value="每小时" note="BACKUP_CRON_EXPRESSION=0 * * * *" />
-          <PageStat label="保留份数" value="72" note="BACKUP_RETENTION_AMOUNT_TO_KEEP" />
-          <PageStat label="可恢复备份" value={readyCount} note="/data/palworld-server/data/backups" />
-          <PageStat label="当前策略" value="已启用" note="启动时生成 crontab" />
+          <PageStat label="自动备份" value={status.data?.maintenance.backupEnabled ? status.data.maintenance.backupCron : '关闭'} note="当前 Cron 策略" />
+          <PageStat label="保留份数" value={status.data?.maintenance.backupRetention ?? '-'} note="自动清理上限" />
+          <PageStat label="可恢复备份" value={readyCount} note="目录备份可直接恢复" />
+          <PageStat label="世界大小" value={status.data ? `${status.data.worldSizeGb.toFixed(2)} GB` : '-'} note="当前 SaveGames" />
         </PageStatStrip>
 
-        <PageSurface title="备份列表" description="生产接入后从 /data/palworld-server/data/backups 读取。">
+        <PageSurface title="备份列表" description="直接扫描服务器备份目录；文件备份仅展示，目录备份支持恢复。">
           {error ? (
             <ErrorState message={error} onRetry={refresh} />
           ) : loading && !data ? (
@@ -109,10 +115,6 @@ export default function Backups() {
                     <TableCell className="whitespace-nowrap"><Badge variant={statusVariant[backup.status]}>{backup.status}</Badge></TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2 whitespace-nowrap">
-                        <Button type="button" variant="outline" size="sm" className="gap-2" disabled={backup.status !== 'ready'}>
-                          <Download className="h-4 w-4" />
-                          下载
-                        </Button>
                         <Button
                           type="button"
                           variant="destructive"

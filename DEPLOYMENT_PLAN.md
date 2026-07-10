@@ -1,6 +1,6 @@
 # Palworld Ops 后端与 Docker 集成规划
 
-这个项目现在已经包含一个 Fastify 后端代理层和 SQLite 持久化层，后端在游戏服务器本机或同一个 Docker Compose 网络里执行 Docker、RCON 和文件操作。
+这个项目使用 Go 后端代理层，后端在游戏服务器本机或同一个 Docker Compose 网络里执行 Docker、RCON 和文件操作。
 
 ## 目标形态
 
@@ -17,7 +17,7 @@ palworld-stack/
 服务拆分：
 
 - `palworld`: 当前游戏服务器容器，继续使用 `thijsvanloef/palworld-server-docker`。
-- `panel`: React 前端 + Fastify API 同容器运行，只监听本机或内网，用来访问 Docker socket、RCON、SQLite 和存档目录。
+- `panel`: React 前端 + Go API 同容器运行，只监听本机或内网，用来访问 Docker socket、RCON、审计文件和存档目录。
 
 ## 统一 .env
 
@@ -147,7 +147,7 @@ services:
 
 ## 前端当前状态
 
-- 默认走真实 `apiRequest`，即使开发环境也是请求 Vite 代理后的 Fastify API。
+- 默认走真实 `apiRequest`，开发环境请求 Vite 代理后的 Go API。
 - 只有设置 `VITE_USE_MOCK_API=true` 时，前端才使用内置 mock。
 - 面板密码来自 `PANEL_AUTH_PASSWORD`，管理员/RCON 密码来自 `PALWORLD_ADMIN_PASSWORD`。
 

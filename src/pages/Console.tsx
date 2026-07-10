@@ -64,7 +64,7 @@ export default function Console() {
   return (
     <PageShell
       title="控制台"
-      description="把 Palworld RCON 命令包装成可理解的操作目录；生产环境由后端在本机或 Compose 网络内执行。"
+      description="执行受控 RCON 命令并查看服务器、备份、更新与审计日志。"
       width="7xl"
       actions={
         <Button type="button" variant="outline" className="gap-2" onClick={logs.refresh}>
@@ -78,7 +78,7 @@ export default function Console() {
           <PageStat label="命令目录" value={commands.data?.length ?? 0} note="含用途与风险等级" />
           <PageStat label="执行方式" value="后端代理" note="前端不直连 RCON" />
           <PageStat label="安全确认" value="已启用" note="Shutdown / Ban 等二次确认" />
-          <PageStat label="管理端口" value="25575" note="建议仅本机或内网" />
+          <PageStat label="执行链路" value="面板后端 → RCON" note="浏览器不直接连接管理端口" />
         </PageStatStrip>
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]">

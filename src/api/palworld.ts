@@ -10,6 +10,9 @@ export interface ServerStatus {
   host: string
   address: string
   version: string
+  gameVersion: string
+  steamBuildId: string
+  versionSource: 'environment' | 'rcon' | 'unavailable'
   timezone: string
   container: string
   image: string
@@ -42,14 +45,10 @@ export interface PortBinding {
 export interface Player {
   id: string
   name: string
-  platform: 'Steam' | 'Xbox' | 'PS5' | 'Mac'
+  playerUid: string
+  platform: 'Steam' | 'Unknown'
   steamId: string
-  level: number
-  guild: string
-  location: string
-  onlineFor: string
-  ping: number
-  status: 'online' | 'idle'
+  status: 'online'
 }
 
 export interface LogEntry {
@@ -129,9 +128,12 @@ const USE_MOCK_API = import.meta.env.VITE_USE_MOCK_API === 'true'
 
 const status: ServerStatus = {
   name: 'Palworld Dedicated Server',
-  host: 'Docker host',
+  host: 'local-demo',
   address: 'your-domain.example:8211',
-  version: 'Build 22460594',
+  version: 'v0.7.3.90464',
+  gameVersion: 'v0.7.3.90464',
+  steamBuildId: '22460594',
+  versionSource: 'rcon',
   timezone: 'Asia/Shanghai',
   container: 'palworld-server',
   image: 'thijsvanloef/palworld-server-docker:latest',
@@ -170,15 +172,11 @@ const status: ServerStatus = {
 const players: Player[] = [
   {
     id: 'p-001',
-    name: 'No players online',
+    name: 'Demo Player',
+    playerUid: 'demo-player-uid',
     platform: 'Steam',
-    steamId: '-',
-    level: 0,
-    guild: '等待玩家加入',
-    location: 'your-domain.example:8211',
-    onlineFor: '-',
-    ping: 0,
-    status: 'idle',
+    steamId: '76561198000000001',
+    status: 'online',
   },
 ]
 
@@ -243,8 +241,8 @@ const settings: ServerSettings = {
   serverName: 'Palworld Dedicated Server',
   description: 'Managed by Palworld Ops',
   players: 32,
-  serverPassword: '6PlMMTajpmNgu8yxwu',
-  adminPassword: '5HWoYlu5xbhaqs20n1rSpcWd',
+  serverPassword: '',
+  adminPassword: '',
   community: false,
   restApiEnabled: false,
   rconEnabled: true,

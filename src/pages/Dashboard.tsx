@@ -40,12 +40,12 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { key: 'overview', label: '服务器总览', icon: LayoutDashboard },
-  { key: 'players', label: '玩家管理', icon: Users },
-  { key: 'console', label: '控制台', icon: Terminal },
-  { key: 'backups', label: '备份恢复', icon: Archive },
-  { key: 'maintenance', label: '维护更新', icon: Wrench },
-  { key: 'settings', label: '参数设置', icon: Settings },
+  { key: 'overview', label: '状态台', icon: LayoutDashboard },
+  { key: 'players', label: '在线玩家', icon: Users },
+  { key: 'console', label: '命令与日志', icon: Terminal },
+  { key: 'backups', label: '世界与备份', icon: Archive },
+  { key: 'maintenance', label: '维护任务', icon: Wrench },
+  { key: 'settings', label: '服务器配置', icon: Settings },
 ]
 
 const PAGE_STORAGE_KEY = nsKey('last-page')

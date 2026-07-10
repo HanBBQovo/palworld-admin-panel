@@ -69,7 +69,7 @@ export default function Settings() {
     try {
       const next = await saveSettings(settings)
       setSettings(next)
-      setMessage({ type: 'success', text: '配置已保存' })
+      setMessage({ type: 'success', text: '配置已保存；需要重启游戏容器的参数仍处于待应用状态' })
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : '保存失败' })
     }
@@ -141,10 +141,10 @@ export default function Settings() {
             </div>
             <div className="grid gap-5 sm:grid-cols-2">
               <FormField label="服务器密码" htmlFor="server-password">
-                <Input id="server-password" value={settings.serverPassword} onChange={(event) => update('serverPassword', event.target.value)} />
+              <Input id="server-password" type="password" autoComplete="new-password" value={settings.serverPassword} onChange={(event) => update('serverPassword', event.target.value)} />
               </FormField>
               <FormField label="管理员密码" htmlFor="admin-password">
-                <Input id="admin-password" value={settings.adminPassword} onChange={(event) => update('adminPassword', event.target.value)} />
+              <Input id="admin-password" type="password" autoComplete="new-password" value={settings.adminPassword} onChange={(event) => update('adminPassword', event.target.value)} />
               </FormField>
             </div>
             <FormField label="允许平台" description="需要保留括号格式，后端写入时应转成 (Steam,Xbox,PS5,Mac)。">
@@ -187,7 +187,7 @@ export default function Settings() {
       ) : null}
 
       {activeTab === 'automation' ? (
-        <PageSurface title="自动维护" description="当前服务器已经启用自动更新、自动重启和每小时备份。">
+        <PageSurface title="自动化功能" description="玩家日志、自动暂停、通知与版本锁定；定时更新和备份在“维护任务”中配置。">
           <FormSection className="sm:max-w-2xl">
             <ToggleRow
               title="自动暂停"
