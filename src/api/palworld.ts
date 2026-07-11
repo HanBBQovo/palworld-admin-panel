@@ -46,8 +46,16 @@ export interface Player {
   id: string
   name: string
   playerUid: string
-  platform: 'Steam' | 'Unknown'
+  platform: 'Steam' | 'Xbox' | 'Unknown'
   steamId: string
+  userId?: string
+  accountName?: string
+  ip?: string
+  ping?: number
+  locationX?: number
+  locationY?: number
+  level?: number
+  buildingCount?: number
   status: 'online'
   manageable: boolean
 }
@@ -125,6 +133,175 @@ export interface RconCommandDefinition {
   description: string
   risk: OperationRisk
   category: 'info' | 'player' | 'world' | 'broadcast' | 'shutdown'
+}
+
+export type AdvancedLayerState = 'ready' | 'disabled' | 'pending-restart' | 'degraded' | 'not-installed' | 'snapshot-ready' | 'locked'
+
+export interface AdvancedLayer {
+  id: 'realtime' | 'world-index' | 'save-editor'
+  label: string
+  state: AdvancedLayerState
+  installed: boolean
+  reachable: boolean
+  readOnly: boolean
+  requiresRestart: boolean
+  source: string
+  message: string
+}
+
+export interface AdvancedCapabilities {
+  layers: AdvancedLayer[]
+  safety: {
+    gameRunning: boolean
+    playersOnline: number
+    snapshotAvailable: boolean
+    canEditSnapshot: boolean
+    canApplyToWorld: boolean
+    applyEnabled: boolean
+  }
+  observedAt: string
+}
+
+export interface DataMeta {
+  source: string
+  observedAt: string
+  stale: boolean
+  snapshotId?: string
+}
+
+export interface DataEnvelope<T> {
+  meta: DataMeta
+  data: T
+}
+
+export interface LiveMetrics {
+  serverFps: number
+  currentPlayers: number
+  maxPlayers: number
+  serverFrameTime: number
+  uptimeSeconds: number
+  inGameDays: number
+  source: string
+  observedAt: string
+}
+
+export interface WorldPal {
+  level: number
+  type: string
+  gender: string
+  nickname: string
+  is_lucky: boolean
+  is_boss: boolean
+  workspeed: number
+  melee: number
+  ranged: number
+  defense: number
+  skills: string[]
+}
+
+export interface WorldItem {
+  SlotIndex: number
+  ItemId: string
+  StackCount: number
+}
+
+export interface WorldItems {
+  CommonContainerId?: WorldItem[]
+  DropSlotContainerId?: WorldItem[]
+  EssentialContainerId?: WorldItem[]
+  FoodEquipContainerId?: WorldItem[]
+  PlayerEquipArmorContainerId?: WorldItem[]
+  WeaponLoadOutContainerId?: WorldItem[]
+}
+
+export interface WorldPlayer {
+  player_uid: string
+  nickname: string
+  level: number
+  exp: number
+  hp: number
+  max_hp: number
+  shield_hp: number
+  shield_max_hp: number
+  full_stomach: number
+  save_last_online: string
+  last_online: string
+  steam_id: string
+  user_id: string
+  account_name: string
+  ip: string
+  ping: number
+  location_x: number
+  location_y: number
+  building_count: number
+  pals?: WorldPal[]
+  items?: WorldItems
+}
+
+export interface GuildMember {
+  player_uid: string
+  nickname: string
+}
+
+export interface BaseCamp {
+  id: string
+  area: number
+  location_x: number
+  location_y: number
+}
+
+export interface WorldGuild {
+  name: string
+  base_camp_level: number
+  admin_player_uid: string
+  players: GuildMember[]
+  base_camp: BaseCamp[]
+}
+
+export interface LiveMapData {
+  players: Player[]
+  guilds: WorldGuild[]
+}
+
+export interface WorldSnapshot {
+  id: string
+  backupId: string
+  createdAt: string
+  refreshedAt: string
+  sourceDir: string
+}
+
+export interface WorldStatus {
+  snapshot: WorldSnapshot
+  indexReachable: boolean
+  editorInstalled: boolean
+}
+
+export interface EditorStatus {
+  installed: boolean
+  reachable: boolean
+  url: string
+  applyEnabled: boolean
+  safety: AdvancedCapabilities['safety']
+  supportedActions: string[]
+}
+
+export interface EditorPreview {
+  id: string
+  action: string
+  targetPlayer?: string
+  changes: Record<string, unknown>
+  risk: 'high'
+  requiresStop: boolean
+  canApplyNow: boolean
+  blockedReasons: string[]
+  createdAt: string
+}
+
+export interface EditorSessionResult {
+  ok: boolean
+  message: string
+  url?: string
 }
 
 const USE_MOCK_API = import.meta.env.VITE_USE_MOCK_API === 'true'
@@ -346,6 +523,64 @@ export function getServerStatus(): Promise<ServerStatus> {
 export function getPlayers(): Promise<Player[]> {
   if (!USE_MOCK_API) return apiRequest<Player[]>('/palworld/players')
   return delay(players)
+}
+
+export function getAdvancedCapabilities(): Promise<AdvancedCapabilities> {
+  return apiRequest<AdvancedCapabilities>('/palworld/capabilities')
+}
+
+export function getLivePlayers(): Promise<DataEnvelope<Player[]>> {
+  return apiRequest<DataEnvelope<Player[]>>('/palworld/live/players')
+}
+
+export function getLiveMetrics(): Promise<LiveMetrics> {
+  return apiRequest<LiveMetrics>('/palworld/live/metrics')
+}
+
+export function getLiveMap(): Promise<DataEnvelope<LiveMapData>> {
+  return apiRequest<DataEnvelope<LiveMapData>>('/palworld/live/map')
+}
+
+export function getWorldStatus(): Promise<WorldStatus> {
+  return apiRequest<WorldStatus>('/palworld/world/status')
+}
+
+export function getWorldPlayers(): Promise<DataEnvelope<WorldPlayer[]>> {
+  return apiRequest<DataEnvelope<WorldPlayer[]>>('/palworld/world/players')
+}
+
+export function getWorldPlayer(uid: string): Promise<DataEnvelope<WorldPlayer>> {
+  return apiRequest<DataEnvelope<WorldPlayer>>(`/palworld/world/players/${encodeURIComponent(uid)}`)
+}
+
+export function getWorldGuilds(): Promise<DataEnvelope<WorldGuild[]>> {
+  return apiRequest<DataEnvelope<WorldGuild[]>>('/palworld/world/guilds')
+}
+
+export function refreshWorldSnapshot(): Promise<{ ok: boolean; message: string; snapshot: WorldSnapshot }> {
+  return apiRequest('/palworld/world/refresh', { method: 'POST' })
+}
+
+export function getEditorStatus(): Promise<EditorStatus> {
+  return apiRequest<EditorStatus>('/palworld/editor/status')
+}
+
+export function createEditorPreview(input: {
+  action: string
+  targetPlayer?: string
+  changes: Record<string, unknown>
+}): Promise<EditorPreview> {
+  return apiRequest<EditorPreview>('/palworld/editor/previews', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function runEditorSession(action: 'start' | 'open' | 'stop'): Promise<EditorSessionResult> {
+  return apiRequest<EditorSessionResult>('/palworld/editor/session', {
+    method: 'POST',
+    body: JSON.stringify({ action }),
+  })
 }
 
 export function getLogs(): Promise<LogEntry[]> {

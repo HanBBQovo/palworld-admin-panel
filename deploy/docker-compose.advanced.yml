@@ -1,0 +1,61 @@
+services:
+  world-index:
+    image: palworld-world-index:save-pal-v0.17.4
+    container_name: palworld-world-index
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:16826:16826/tcp"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.5
+    mem_limit: 2g
+    pids_limit: 128
+    environment:
+      WEB_PASSWORD: ${PALWORLD_WORLD_INDEX_PASSWORD}
+      WEB_PORT: 16826
+      SAVE_PATH: /advanced/world-snapshot
+      STATE_FILE: /app/state/index.json
+    volumes:
+      - ./advanced-state:/advanced:ro
+      - world-index-state:/app/state
+    tmpfs:
+      - /tmp:size=512m,mode=1777,exec
+    networks:
+      - advanced
+
+  save-editor:
+    image: palworld-save-editor:v0.17.4
+    container_name: palworld-save-editor
+    profiles:
+      - maintenance-editor
+    restart: "no"
+    ports:
+      - "127.0.0.1:16827:16827/tcp"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 1.0
+    mem_limit: 4g
+    pids_limit: 256
+    environment:
+      WEB_PORT: 16827
+      WORKSPACE_DIR: /workspace
+      STATE_DIR: /app/state
+    volumes:
+      - ./advanced-state/editor-workspace:/workspace:ro
+      - save-editor-state:/app/state
+    tmpfs:
+      - /tmp:size=1g,mode=1777,exec
+    networks:
+      - advanced
+
+networks:
+  advanced:
+
+volumes:
+  world-index-state:
+  save-editor-state:

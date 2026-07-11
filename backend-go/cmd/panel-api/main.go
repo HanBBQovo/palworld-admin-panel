@@ -19,33 +19,43 @@ import (
 )
 
 type Config struct {
-	Bind           string
-	Port           int
-	AuthPassword   string
-	TokenSecret    string
-	TokenTTL       time.Duration
-	CorsOrigin     string
-	WebRoot        string
-	StateDir       string
-	SettingsFile   string
-	AuditFile      string
-	OpsFile        string
-	DataDir        string
-	SavesDir       string
-	BackupsDir     string
-	ComposeDir     string
-	ComposeProject string
-	EnvFile        string
-	Container      string
-	RconHost       string
-	RconPort       int
-	RconPassword   string
-	RconTimeout    time.Duration
-	AllowRawRcon   bool
-	WriteEnv       bool
-	DisplayHost    string
-	PublicDomain   string
-	Timezone       string
+	Bind            string
+	Port            int
+	AuthPassword    string
+	TokenSecret     string
+	TokenTTL        time.Duration
+	CorsOrigin      string
+	WebRoot         string
+	StateDir        string
+	SettingsFile    string
+	AuditFile       string
+	OpsFile         string
+	DataDir         string
+	SavesDir        string
+	BackupsDir      string
+	ComposeDir      string
+	ComposeProject  string
+	EnvFile         string
+	Container       string
+	RconHost        string
+	RconPort        int
+	RconPassword    string
+	RconTimeout     time.Duration
+	AllowRawRcon    bool
+	WriteEnv        bool
+	DisplayHost     string
+	PublicDomain    string
+	Timezone        string
+	RestURL         string
+	WorldIndexURL   string
+	WorldIndexPass  string
+	WorldSnapshot   string
+	EditorURL       string
+	EditorDir       string
+	EditorImage     string
+	EditorWorkspace string
+	AdvancedCompose string
+	EditorApply     bool
 }
 
 type App struct {
@@ -56,6 +66,7 @@ type App struct {
 	lastPlayersAt time.Time
 	auditMu       sync.Mutex
 	opsMu         sync.Mutex
+	snapshotMu    sync.Mutex
 }
 
 type APIError struct {
@@ -144,13 +155,21 @@ type ServerStatus struct {
 }
 
 type Player struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	PlayerUID  string `json:"playerUid"`
-	Platform   string `json:"platform"`
-	SteamID    string `json:"steamId"`
-	Status     string `json:"status"`
-	Manageable bool   `json:"manageable"`
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	PlayerUID     string  `json:"playerUid"`
+	Platform      string  `json:"platform"`
+	SteamID       string  `json:"steamId"`
+	UserID        string  `json:"userId,omitempty"`
+	AccountName   string  `json:"accountName,omitempty"`
+	IP            string  `json:"ip,omitempty"`
+	Ping          float64 `json:"ping,omitempty"`
+	LocationX     float64 `json:"locationX,omitempty"`
+	LocationY     float64 `json:"locationY,omitempty"`
+	Level         int     `json:"level,omitempty"`
+	BuildingCount int     `json:"buildingCount,omitempty"`
+	Status        string  `json:"status"`
+	Manageable    bool    `json:"manageable"`
 }
 
 type LogEntry struct {
@@ -238,33 +257,43 @@ func loadConfig() Config {
 	stateDir := getenv("PANEL_STATE_DIR", ".panel-state")
 	timeoutMs := getenvInt("PANEL_RCON_TIMEOUT_MS", 3000)
 	return Config{
-		Bind:           getenvAny("0.0.0.0", "PANEL_API_BIND", "HOST"),
-		Port:           getenvIntAny(16824, "PANEL_API_PORT", "APP_API_PORT", "PORT"),
-		AuthPassword:   getenv("PANEL_AUTH_PASSWORD", "change-panel-password"),
-		TokenSecret:    getenvAny("", "PANEL_TOKEN_SECRET", "PANEL_JWT_SECRET", "PANEL_AUTH_PASSWORD"),
-		TokenTTL:       time.Duration(getenvInt("PANEL_TOKEN_TTL_SECONDS", 60*60*24*7)) * time.Second,
-		CorsOrigin:     getenv("PANEL_CORS_ORIGIN", "*"),
-		WebRoot:        getenv("PANEL_WEB_ROOT", "dist"),
-		StateDir:       stateDir,
-		SettingsFile:   getenv("PANEL_SETTINGS_FILE", filepath.Join(stateDir, "settings.json")),
-		AuditFile:      getenv("PANEL_AUDIT_FILE", filepath.Join(stateDir, "audit.jsonl")),
-		OpsFile:        getenv("PANEL_OPS_FILE", filepath.Join(stateDir, "operations.jsonl")),
-		DataDir:        getenv("PALWORLD_DATA_DIR", "/palworld"),
-		SavesDir:       getenvAny("/palworld/Pal/Saved/SaveGames", "PALWORLD_SAVES_DIR", "PALWORLD_SAVE_DIR"),
-		BackupsDir:     getenv("PALWORLD_BACKUP_DIR", "/palworld/backups"),
-		ComposeDir:     getenv("PALWORLD_COMPOSE_DIR", "."),
-		ComposeProject: getenvAny("palworld-server", "PALWORLD_COMPOSE_PROJECT", "PANEL_COMPOSE_PROJECT", "COMPOSE_PROJECT_NAME"),
-		EnvFile:        getenv("PANEL_ENV_FILE", filepath.Join(getenv("PALWORLD_COMPOSE_DIR", "."), ".env")),
-		Container:      getenv("PALWORLD_CONTAINER", "palworld-server"),
-		RconHost:       getenv("PALWORLD_RCON_HOST", "127.0.0.1"),
-		RconPort:       getenvIntAny(25575, "PALWORLD_RCON_PORT", "RCON_PORT"),
-		RconPassword:   getenvAny("", "PALWORLD_ADMIN_PASSWORD", "ADMIN_PASSWORD"),
-		RconTimeout:    time.Duration(timeoutMs) * time.Millisecond,
-		AllowRawRcon:   parseBool(getenv("PANEL_ALLOW_RAW_RCON", ""), false),
-		WriteEnv:       parseBool(getenv("PANEL_WRITE_ENV", ""), true),
-		DisplayHost:    getenv("PANEL_DISPLAY_HOST", ""),
-		PublicDomain:   getenvAny("", "PALWORLD_PUBLIC_DOMAIN", "PUBLIC_DOMAIN"),
-		Timezone:       getenv("TZ", "Asia/Shanghai"),
+		Bind:            getenvAny("0.0.0.0", "PANEL_API_BIND", "HOST"),
+		Port:            getenvIntAny(16824, "PANEL_API_PORT", "APP_API_PORT", "PORT"),
+		AuthPassword:    getenv("PANEL_AUTH_PASSWORD", "change-panel-password"),
+		TokenSecret:     getenvAny("", "PANEL_TOKEN_SECRET", "PANEL_JWT_SECRET", "PANEL_AUTH_PASSWORD"),
+		TokenTTL:        time.Duration(getenvInt("PANEL_TOKEN_TTL_SECONDS", 60*60*24*7)) * time.Second,
+		CorsOrigin:      getenv("PANEL_CORS_ORIGIN", "*"),
+		WebRoot:         getenv("PANEL_WEB_ROOT", "dist"),
+		StateDir:        stateDir,
+		SettingsFile:    getenv("PANEL_SETTINGS_FILE", filepath.Join(stateDir, "settings.json")),
+		AuditFile:       getenv("PANEL_AUDIT_FILE", filepath.Join(stateDir, "audit.jsonl")),
+		OpsFile:         getenv("PANEL_OPS_FILE", filepath.Join(stateDir, "operations.jsonl")),
+		DataDir:         getenv("PALWORLD_DATA_DIR", "/palworld"),
+		SavesDir:        getenvAny("/palworld/Pal/Saved/SaveGames", "PALWORLD_SAVES_DIR", "PALWORLD_SAVE_DIR"),
+		BackupsDir:      getenv("PALWORLD_BACKUP_DIR", "/palworld/backups"),
+		ComposeDir:      getenv("PALWORLD_COMPOSE_DIR", "."),
+		ComposeProject:  getenvAny("palworld-server", "PALWORLD_COMPOSE_PROJECT", "PANEL_COMPOSE_PROJECT", "COMPOSE_PROJECT_NAME"),
+		EnvFile:         getenv("PANEL_ENV_FILE", filepath.Join(getenv("PALWORLD_COMPOSE_DIR", "."), ".env")),
+		Container:       getenv("PALWORLD_CONTAINER", "palworld-server"),
+		RconHost:        getenv("PALWORLD_RCON_HOST", "127.0.0.1"),
+		RconPort:        getenvIntAny(25575, "PALWORLD_RCON_PORT", "RCON_PORT"),
+		RconPassword:    getenvAny("", "PALWORLD_ADMIN_PASSWORD", "ADMIN_PASSWORD"),
+		RconTimeout:     time.Duration(timeoutMs) * time.Millisecond,
+		AllowRawRcon:    parseBool(getenv("PANEL_ALLOW_RAW_RCON", ""), false),
+		WriteEnv:        parseBool(getenv("PANEL_WRITE_ENV", ""), true),
+		DisplayHost:     getenv("PANEL_DISPLAY_HOST", ""),
+		PublicDomain:    getenvAny("", "PALWORLD_PUBLIC_DOMAIN", "PUBLIC_DOMAIN"),
+		Timezone:        getenv("TZ", "Asia/Shanghai"),
+		RestURL:         strings.TrimRight(getenv("PALWORLD_REST_URL", "http://127.0.0.1:8212"), "/"),
+		WorldIndexURL:   strings.TrimRight(getenv("PALWORLD_WORLD_INDEX_URL", "http://127.0.0.1:16826"), "/"),
+		WorldIndexPass:  getenvAny("", "PALWORLD_WORLD_INDEX_PASSWORD", "PANEL_AUTH_PASSWORD"),
+		WorldSnapshot:   getenv("PALWORLD_WORLD_SNAPSHOT_DIR", filepath.Join(stateDir, "world-snapshot")),
+		EditorURL:       strings.TrimRight(getenv("PALWORLD_SAVE_EDITOR_URL", "http://127.0.0.1:16827"), "/"),
+		EditorDir:       getenv("PALWORLD_SAVE_EDITOR_DIR", filepath.Join(getenv("PALWORLD_COMPOSE_DIR", "."), "tools", "palworld-save-pal")),
+		EditorImage:     getenv("PALWORLD_SAVE_EDITOR_IMAGE", "palworld-save-editor:v0.17.4"),
+		EditorWorkspace: getenv("PALWORLD_SAVE_EDITOR_WORKSPACE", filepath.Join(filepath.Dir(getenv("PALWORLD_WORLD_SNAPSHOT_DIR", filepath.Join(stateDir, "world-snapshot"))), "editor-workspace")),
+		AdvancedCompose: getenv("PALWORLD_ADVANCED_COMPOSE_FILE", filepath.Join(getenv("PALWORLD_COMPOSE_DIR", "."), "docker-compose.advanced.yml")),
+		EditorApply:     parseBool(getenv("PANEL_EDITOR_APPLY_ENABLED", "false"), false),
 	}
 }
 
@@ -291,6 +320,7 @@ func (a *App) routes() http.Handler {
 	}))
 	mux.HandleFunc("/api/palworld/rcon", a.authed("POST", a.handleRcon))
 	mux.HandleFunc("/api/palworld/maintenance", a.authed("POST", a.handleMaintenance))
+	a.registerAdvancedRoutes(mux)
 	mux.HandleFunc("/", a.serveSPA)
 	return withCORS(a.cfg.CorsOrigin, withRecover(mux))
 }
@@ -384,7 +414,11 @@ func (a *App) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) signToken(username string) (string, error) {
-	payload := map[string]any{"u": username, "exp": time.Now().Add(a.cfg.TokenTTL).Unix()}
+	return a.signTokenTTL(username, a.cfg.TokenTTL)
+}
+
+func (a *App) signTokenTTL(username string, ttl time.Duration) (string, error) {
+	payload := map[string]any{"u": username, "exp": time.Now().Add(ttl).Unix()}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
@@ -401,7 +435,11 @@ func (a *App) verifyRequestToken(r *http.Request) (string, bool) {
 	if !strings.HasPrefix(strings.ToLower(header), "bearer ") {
 		return "", false
 	}
-	parts := strings.Split(strings.TrimSpace(header[7:]), ".")
+	return a.verifyToken(strings.TrimSpace(header[7:]))
+}
+
+func (a *App) verifyToken(token string) (string, bool) {
+	parts := strings.Split(token, ".")
 	if len(parts) != 2 {
 		return "", false
 	}

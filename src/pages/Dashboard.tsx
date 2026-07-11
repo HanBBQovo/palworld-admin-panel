@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ElementType } from 'react'
 import {
   Archive,
+  Boxes,
   ChevronLeft,
   ChevronRight,
   Gamepad2,
@@ -30,8 +31,9 @@ const Console = lazy(() => import('@/pages/Console'))
 const Backups = lazy(() => import('@/pages/Backups'))
 const Maintenance = lazy(() => import('@/pages/Maintenance'))
 const SettingsPage = lazy(() => import('@/pages/Settings'))
+const Advanced = lazy(() => import('@/pages/Advanced'))
 
-type Page = 'overview' | 'players' | 'console' | 'backups' | 'maintenance' | 'settings'
+type Page = 'overview' | 'advanced' | 'players' | 'console' | 'backups' | 'maintenance' | 'settings'
 
 interface NavItem {
   key: Page
@@ -41,6 +43,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { key: 'overview', label: '状态台', icon: LayoutDashboard },
+  { key: 'advanced', label: '高级控制台', icon: Boxes },
   { key: 'players', label: '在线玩家', icon: Users },
   { key: 'console', label: '命令与日志', icon: Terminal },
   { key: 'backups', label: '世界与备份', icon: Archive },
@@ -251,6 +254,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                     transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
                   >
                     {currentPage === 'overview' ? <Overview /> : null}
+                    {currentPage === 'advanced' ? <Advanced /> : null}
                     {currentPage === 'players' ? <Players /> : null}
                     {currentPage === 'console' ? <Console /> : null}
                     {currentPage === 'backups' ? <Backups /> : null}

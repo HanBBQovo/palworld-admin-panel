@@ -90,6 +90,12 @@ func (a *App) loadPlayers() ([]Player, error) {
 		return clonePlayers(a.lastPlayers), nil
 	}
 
+	if players, err := a.restPlayers(); err == nil {
+		a.lastPlayers = players
+		a.lastPlayersAt = time.Now()
+		return clonePlayers(players), nil
+	}
+
 	if players, reliable, err := a.loadPlayersFromServerLogs(); err == nil && reliable {
 		a.lastPlayers = players
 		a.lastPlayersAt = time.Now()
