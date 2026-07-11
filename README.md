@@ -51,6 +51,8 @@ npm start        # 本地启动 Go API，同时提供 /api 和 dist 静态文件
 
 世界索引只解析一份已经完成的压缩备份快照。维护编辑器默认休眠，且 `PANEL_EDITOR_APPLY_ENABLED=false`；游戏仍在运行、存在在线玩家或没有预备份时，生产存档写回必须保持锁定。
 
+面板通过宿主 Docker socket 启动高级服务时，`PALWORLD_HOST_STACK_DIR` 必须是 Compose 目录在宿主机上的绝对路径；直接在宿主机运行示例 Compose 时可保持为 `.`。
+
 RCON 默认只允许这些前缀：`Info`、`ShowPlayers`、`Save`、`Broadcast`、`KickPlayer`、`BanPlayer`、`Shutdown`。需要开放任意 RCON 时设置 `PANEL_ALLOW_RAW_RCON=true`。RCON 超时时间默认由 `PANEL_RCON_TIMEOUT_MS=1800` 控制。
 
 CPU 显示使用主机口径：Docker `stats` 的容器 CPU 百分比会除以宿主机核心数，避免把多核累计值误读成整机 CPU。

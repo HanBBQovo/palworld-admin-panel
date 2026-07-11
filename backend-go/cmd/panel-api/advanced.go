@@ -321,17 +321,26 @@ func (a *App) restPlayers() ([]Player, error) {
 }
 
 func (a *App) handleLivePlayers(w http.ResponseWriter, _ *http.Request) {
-	players, err := a.restPlayers()
-	source := "Palworld REST API"
-	if err != nil {
-		players, _, err = a.loadPlayersFromServerLogs()
-		source = "server connection logs"
-	}
+	players, source, err := a.livePlayers()
 	if err != nil {
 		writeError(w, APIError{Status: http.StatusBadGateway, Message: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, DataEnvelope{Meta: DataMeta{Source: source, ObservedAt: formatTime(time.Now()), Stale: source != "Palworld REST API"}, Data: players})
+}
+
+func (a *App) livePlayers() ([]Player, string, error) {
+	if players, err := a.restPlayers(); err == nil {
+		return players, "Palworld REST API", nil
+	}
+	if players, reliable, err := a.loadPlayersFromServerLogs(); err == nil && reliable {
+		return players, "server connection logs", nil
+	}
+	result, err := a.executeRcon("ShowPlayers", a.cfg.RconTimeout)
+	if err != nil {
+		return nil, "", err
+	}
+	return parsePlayers(result.Output), "Palworld RCON", nil
 }
 
 func (a *App) handleLiveMetrics(w http.ResponseWriter, _ *http.Request) {
@@ -351,19 +360,14 @@ func (a *App) handleLiveMetrics(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *App) handleLiveMap(w http.ResponseWriter, _ *http.Request) {
-	players, err := a.restPlayers()
-	stale := false
-	if err != nil {
-		players, _, err = a.loadPlayersFromServerLogs()
-		stale = true
-	}
+	players, source, err := a.livePlayers()
 	if err != nil {
 		writeError(w, APIError{Status: http.StatusBadGateway, Message: err.Error()})
 		return
 	}
 	guilds := []WorldGuild{}
 	_ = a.worldIndexGet("/api/guild", &guilds)
-	writeJSON(w, http.StatusOK, DataEnvelope{Meta: DataMeta{Source: "Palworld REST API + world snapshot", ObservedAt: formatTime(time.Now()), Stale: stale, SnapshotID: a.snapshotID()}, Data: map[string]any{"players": players, "guilds": guilds}})
+	writeJSON(w, http.StatusOK, DataEnvelope{Meta: DataMeta{Source: source + " + world snapshot", ObservedAt: formatTime(time.Now()), Stale: source != "Palworld REST API", SnapshotID: a.snapshotID()}, Data: map[string]any{"players": players, "guilds": guilds}})
 }
 
 func (a *App) worldIndexReachable() bool {
@@ -644,14 +648,27 @@ func (a *App) handleEditorSession(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
+		if err := a.issueEditorSession(w, r, result); err != nil {
+			writeError(w, err)
+			return
+		}
 		writeJSON(w, http.StatusOK, result)
 	case "open":
+		inspect := a.dockerInspect(r.Context())
+		if inspect == nil {
+			writeError(w, APIError{Status: http.StatusServiceUnavailable, Message: "无法确认游戏服务器已停止，维护会话保持锁定"})
+			return
+		}
+		if inspect.State.Running {
+			writeError(w, APIError{Status: http.StatusConflict, Message: "游戏服务器仍在运行，不能打开存档编辑会话"})
+			return
+		}
 		if !a.editorReachable() {
 			writeError(w, APIError{Status: http.StatusServiceUnavailable, Message: "维护编辑器未运行"})
 			return
 		}
-		result, err := a.editorSessionResponse("维护编辑会话入口已生成")
-		if err != nil {
+		result := map[string]any{"ok": true, "message": "维护编辑会话入口已生成"}
+		if err := a.issueEditorSession(w, r, result); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -661,6 +678,7 @@ func (a *App) handleEditorSession(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
+		http.SetCookie(w, &http.Cookie{Name: "palworld_editor_session", Value: "", Path: "/editor/", MaxAge: -1, HttpOnly: true, Secure: r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"), SameSite: http.SameSiteStrictMode})
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "维护编辑会话已停止"})
 	default:
 		writeError(w, APIError{Status: http.StatusBadRequest, Message: "未知维护会话动作"})
@@ -676,7 +694,7 @@ func (a *App) startEditorSession() (map[string]any, error) {
 		return nil, APIError{Status: http.StatusConflict, Message: "游戏服务器仍在运行，不能启动存档编辑会话"}
 	}
 	if a.editorReachable() {
-		return a.editorSessionResponse("维护编辑会话已在运行")
+		return map[string]any{"ok": true, "message": "维护编辑会话已在运行"}, nil
 	}
 	if !a.editorInstalled() {
 		return nil, APIError{Status: http.StatusServiceUnavailable, Message: "存档编辑器尚未安装"}
@@ -701,15 +719,17 @@ func (a *App) startEditorSession() (map[string]any, error) {
 		return nil, APIError{Status: http.StatusServiceUnavailable, Message: "存档编辑器启动后未通过健康检查"}
 	}
 	a.audit("warn", "server", "已从静态快照启动维护编辑会话", "admin", map[string]any{"workspace": a.cfg.EditorWorkspace})
-	return a.editorSessionResponse("维护编辑会话已启动")
+	return map[string]any{"ok": true, "message": "维护编辑会话已启动"}, nil
 }
 
-func (a *App) editorSessionResponse(message string) (map[string]any, error) {
+func (a *App) issueEditorSession(w http.ResponseWriter, r *http.Request, result map[string]any) error {
 	token, err := a.signTokenTTL("editor", 15*time.Minute)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return map[string]any{"ok": true, "message": message, "url": "/editor/?session=" + url.QueryEscape(token)}, nil
+	http.SetCookie(w, &http.Cookie{Name: "palworld_editor_session", Value: token, Path: "/editor/", MaxAge: 15 * 60, HttpOnly: true, Secure: r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"), SameSite: http.SameSiteStrictMode})
+	result["url"] = "/editor/"
+	return nil
 }
 
 func (a *App) stopEditorSession() error {
@@ -767,17 +787,6 @@ func (a *App) prepareEditorWorkspace() error {
 }
 
 func (a *App) handleEditorProxy(w http.ResponseWriter, r *http.Request) {
-	if token := r.URL.Query().Get("session"); token != "" {
-		username, ok := a.verifyToken(token)
-		if !ok || username != "editor" {
-			writeError(w, APIError{Status: http.StatusUnauthorized, Message: "维护会话已过期"})
-			return
-		}
-		w.Header().Set("Referrer-Policy", "no-referrer")
-		http.SetCookie(w, &http.Cookie{Name: "palworld_editor_session", Value: token, Path: "/editor/", MaxAge: 15 * 60, HttpOnly: true, Secure: r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"), SameSite: http.SameSiteStrictMode})
-		http.Redirect(w, r, "/editor/", http.StatusSeeOther)
-		return
-	}
 	cookie, err := r.Cookie("palworld_editor_session")
 	if err != nil {
 		writeError(w, APIError{Status: http.StatusUnauthorized, Message: "请从高级控制台打开维护编辑器"})

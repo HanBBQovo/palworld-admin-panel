@@ -294,7 +294,7 @@ function PlayersWorkspace() {
               <TableRow key={player.player_uid} className="cursor-pointer" onClick={() => setSelectedUID(player.player_uid)}>
                 <TableCell><div className="font-medium">{player.nickname || player.account_name || player.player_uid}</div><div className="font-mono text-xs text-muted-foreground">{player.player_uid}</div></TableCell>
                 <TableCell>{player.level}</TableCell>
-                <TableCell>{player.hp} / {player.max_hp}<div className="text-xs text-muted-foreground">护盾 {player.shield_hp} / {player.shield_max_hp}</div></TableCell>
+                <TableCell>{player.max_hp > 0 ? `${player.hp} / ${player.max_hp}` : player.hp || '-'}{player.shield_hp > 0 || player.shield_max_hp > 0 ? <div className="text-xs text-muted-foreground">护盾 {player.shield_hp} / {player.shield_max_hp}</div> : null}</TableCell>
                 <TableCell>{player.pals?.length ?? '-'}</TableCell>
                 <TableCell>{countItems(player)}</TableCell>
                 <TableCell>{player.save_last_online || player.last_online || '-'}</TableCell>

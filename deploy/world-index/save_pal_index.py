@@ -82,10 +82,10 @@ def pal_row(pal):
         "nickname": safe_value(lambda: pal.nickname, "") or "",
         "is_lucky": safe_value(lambda: pal.is_lucky, False),
         "is_boss": safe_value(lambda: pal.is_boss, False),
-        "workspeed": safe_value(lambda: pal.rank_craftspeed, 0),
-        "melee": safe_value(lambda: pal.rank_attack, 0),
-        "ranged": safe_value(lambda: pal.rank_attack, 0),
-        "defense": safe_value(lambda: pal.rank_defense, 0),
+        "workspeed": 0,
+        "melee": 0,
+        "ranged": 0,
+        "defense": 0,
         "skills": json_value(skills),
     }
 
@@ -124,7 +124,7 @@ def player_row(player, summary=None, include_detail=True):
         {
             "exp": safe_value(lambda: player.exp, 0),
             "hp": hp,
-            "max_hp": hp,
+            "max_hp": 0,
             "full_stomach": safe_value(lambda: player.stomach, 0),
             "save_last_online": last_online.isoformat() if last_online else "",
             "last_online": last_online.isoformat() if last_online else "",
@@ -164,9 +164,8 @@ def guild_row(guild, summary, player_names):
         "name": safe_value(lambda: guild.name, "") if guild else safe_value(lambda: summary.name, ""),
         "base_camp_level": safe_value(lambda: guild.base_camp_level, 0) if guild else 0,
         "admin_player_uid": uid_text(
-            safe_value(lambda: guild.admin_player_uid, None)
-            if guild
-            else safe_value(lambda: summary.admin_player_uid, None)
+            safe_value(lambda: summary.admin_player_uid, None)
+            or (safe_value(lambda: guild.admin_player_uid, None) if guild else None)
         ),
         "players": [
             {"player_uid": uid_text(uid), "nickname": player_names.get(uid_text(uid), "")}

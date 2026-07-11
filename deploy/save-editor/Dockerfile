@@ -13,6 +13,10 @@ RUN ws_file="$(grep -Rl 'const cee="127.0.0.1:5174/ws",AYe="true"' /opt/editor/u
     && sed -i 's#const cee="127.0.0.1:5174/ws",AYe="true"#const cee=window.location.host+"/editor/ws",AYe="false"#' "$ws_file" \
     && grep -q 'window.location.host+"/editor/ws"' "$ws_file" \
     && sed -i 's#"PUBLIC_WS_URL":"127.0.0.1:5174/ws","PUBLIC_DESKTOP_MODE":"true"#"PUBLIC_WS_URL":"","PUBLIC_DESKTOP_MODE":"false"#' /opt/editor/ui/_app/env.js \
+    && api_files="$(grep -Rl '/api/convert/' /opt/editor/ui)" \
+    && test -n "$api_files" \
+    && printf '%s\n' "$api_files" | xargs sed -i 's#/api/convert/#/editor/api/convert/#g' \
+    && ! grep -Rqs 'fetch("/api/convert/' /opt/editor/ui \
     && rm -f /opt/editor/psp.db \
     && ln -s /opt/editor/data /app/state/data \
     && chown -R editor:editor /opt/editor /app/state
