@@ -106,6 +106,20 @@ func TestRefreshWorldSnapshotCopiesCompletedBackup(t *testing.T) {
 	}
 }
 
+func TestWorldSnapshotAvailableUsesLevelSave(t *testing.T) {
+	dir := t.TempDir()
+	app := &App{cfg: Config{WorldSnapshot: dir}}
+	if app.worldSnapshotAvailable() {
+		t.Fatal("empty snapshot directory must not be available")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Level.sav"), []byte("save"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !app.worldSnapshotAvailable() {
+		t.Fatal("snapshot with Level.sav must be available")
+	}
+}
+
 func writeTarGz(t *testing.T, path string, files map[string]string) {
 	t.Helper()
 	file, err := os.Create(path)

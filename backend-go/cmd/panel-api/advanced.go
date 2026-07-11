@@ -208,8 +208,7 @@ func (a *App) advancedCapabilities() AdvancedCapabilities {
 		restReachable = a.palREST("GET", "/v1/api/info", nil, &info) == nil
 	}
 	indexReachable := a.worldIndexReachable()
-	_, snapshotErr := os.Stat(a.worldSnapshotFile())
-	snapshotAvailable := snapshotErr == nil
+	snapshotAvailable := a.worldSnapshotAvailable()
 	editorInstalled := a.editorInstalled()
 	editorReachable := a.editorReachable()
 	canEdit := inspect != nil && !gameRunning && snapshotAvailable && editorInstalled && len(players) == 0
@@ -682,7 +681,7 @@ func (a *App) startEditorSession() (map[string]any, error) {
 	if !a.editorInstalled() {
 		return nil, APIError{Status: http.StatusServiceUnavailable, Message: "存档编辑器尚未安装"}
 	}
-	if !pathExists(a.cfg.WorldSnapshot) {
+	if !a.worldSnapshotAvailable() {
 		return nil, APIError{Status: http.StatusConflict, Message: "尚未准备静态世界快照"}
 	}
 	if err := a.prepareEditorWorkspace(); err != nil {
@@ -878,6 +877,10 @@ func (a *App) handleEditorPreview(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) worldSnapshotFile() string {
 	return filepath.Join(a.cfg.StateDir, "world-index-snapshot.json")
+}
+
+func (a *App) worldSnapshotAvailable() bool {
+	return pathExists(filepath.Join(a.cfg.WorldSnapshot, "Level.sav"))
 }
 
 func (a *App) snapshotID() string {
