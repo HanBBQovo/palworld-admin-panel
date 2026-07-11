@@ -41,6 +41,42 @@ func TestParsePlayersHandlesPalworldNullPaddedSteamID(t *testing.T) {
 	}
 }
 
+func TestParseOnlinePlayersFromServerLogsTracksLifecycle(t *testing.T) {
+	logs := "Running Palworld dedicated server on :8211\n" +
+		"[LOG] Alice joined the server. (User id: steam_76561198000000001, Player id: AAAA)\n" +
+		"[LOG] 略略略 joined the server. (User id: steam_76561198826677646, Player id: BBBB)\n" +
+		"[LOG] Alice left the server. (User id: steam_76561198000000001)\n"
+	players, reliable := parseOnlinePlayersFromServerLogs(logs)
+	if !reliable {
+		t.Fatal("expected lifecycle logs to be reliable")
+	}
+	if len(players) != 1 || players[0].Name != "略略略" {
+		t.Fatalf("unexpected online players: %#v", players)
+	}
+	if players[0].SteamID != "76561198826677646" || !players[0].Manageable {
+		t.Fatalf("expected complete Steam identity: %#v", players[0])
+	}
+}
+
+func TestParseOnlinePlayersFromServerLogsResetsAfterGameRestart(t *testing.T) {
+	logs := "[LOG] Alice joined the server. (User id: steam_76561198000000001, Player id: AAAA)\n" +
+		"Running Palworld dedicated server on :8211\n"
+	players, reliable := parseOnlinePlayersFromServerLogs(logs)
+	if reliable || len(players) != 0 {
+		t.Fatalf("expected pre-restart lifecycle to be discarded: reliable=%v players=%#v", reliable, players)
+	}
+}
+
+func TestParseOnlinePlayersFromServerLogsKeepsEmptyOnlineState(t *testing.T) {
+	logs := "Running Palworld dedicated server on :8211\n" +
+		"[LOG] Alice joined the server. (User id: steam_76561198000000001, Player id: AAAA)\n" +
+		"[LOG] Alice left the server. (User id: steam_76561198000000001)\n"
+	players, reliable := parseOnlinePlayersFromServerLogs(logs)
+	if !reliable || len(players) != 0 {
+		t.Fatalf("expected a reliable empty online state: reliable=%v players=%#v", reliable, players)
+	}
+}
+
 func TestClonePlayersKeepsEmptySliceAsJSONArray(t *testing.T) {
 	raw, err := json.Marshal(clonePlayers(nil))
 	if err != nil {

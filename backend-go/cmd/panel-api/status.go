@@ -90,6 +90,12 @@ func (a *App) loadPlayers() ([]Player, error) {
 		return clonePlayers(a.lastPlayers), nil
 	}
 
+	if players, reliable, err := a.loadPlayersFromServerLogs(); err == nil && reliable {
+		a.lastPlayers = players
+		a.lastPlayersAt = time.Now()
+		return clonePlayers(players), nil
+	}
+
 	result, err := a.executeRcon("ShowPlayers", a.cfg.RconTimeout)
 	if err != nil {
 		return nil, err

@@ -56,7 +56,7 @@ export default function Players() {
   return (
     <PageShell
       title="在线玩家"
-      description="来自 RCON ShowPlayers 的实时名单与管理操作。"
+      description="来自服务端连接日志的实时名单，必要时回退 RCON。"
       width="7xl"
       actions={
         <Button type="button" variant="outline" onClick={refreshAll} disabled={players.loading}>
@@ -67,9 +67,9 @@ export default function Players() {
     >
       <div className="flex flex-col gap-5">
         <PageStatStrip>
-          <PageStat label="在线玩家" value={players.data?.length ?? 0} note="实时 RCON 查询" />
+          <PageStat label="在线玩家" value={players.data?.length ?? 0} note="实时连接事件" />
           <PageStat label="服务器容量" value={status.data?.playersMax ?? '-'} note="当前配置上限" />
-          <PageStat label="玩家数据源" value="ShowPlayers" note="不展示 RCON 未提供的伪字段" />
+          <PageStat label="玩家数据源" value="连接日志 + RCON" note="优先使用加入/离开事件，避免名单被截断" />
           <PageStat label="可用操作" value="Kick / Ban" note="执行结果写入审计日志" />
         </PageStatStrip>
 

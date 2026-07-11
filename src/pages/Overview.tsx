@@ -113,7 +113,7 @@ export default function Overview() {
           ) : null}
 
           <PageStatStrip>
-            <PageStat label="在线玩家" value={`${data.playersOnline} / ${data.playersMax}`} note="来自 RCON ShowPlayers" />
+            <PageStat label="在线玩家" value={`${data.playersOnline} / ${data.playersMax}`} note="来自连接日志，必要时回退 RCON" />
             <PageStat label="游戏版本" value={data.gameVersion || data.version} note={data.versionSource === 'rcon' ? '来自 RCON Info' : '版本来源不可用'} />
             <PageStat label="运行时长" value={data.uptime} note={`启动于 ${data.startedAt}`} />
             <PageStat label="最后存档" value={data.lastSaveAt} note={`时区 ${data.timezone}`} />
