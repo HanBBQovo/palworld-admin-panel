@@ -263,7 +263,7 @@ func envSettings() ServerSettings {
 	return ServerSettings{
 		ServerName:            getenvAny("Palworld Dedicated Server", "PALWORLD_SERVER_NAME", "SERVER_NAME"),
 		Description:           getenvAny("Managed by Palworld Ops", "PALWORLD_SERVER_DESCRIPTION", "SERVER_DESCRIPTION"),
-		Players:               getenvIntAny(32, "PALWORLD_PLAYERS", "PLAYERS"),
+		Players:               getenvIntAny(32, "PALWORLD_PLAYERS", "SERVER_PLAYER_MAX_NUM", "PLAYERS"),
 		ServerPassword:        getenvAny("", "PALWORLD_SERVER_PASSWORD", "SERVER_PASSWORD"),
 		AdminPassword:         getenvAny("", "PALWORLD_ADMIN_PASSWORD", "ADMIN_PASSWORD"),
 		Community:             parseBool(getenvAny("", "PALWORLD_COMMUNITY", "COMMUNITY"), false),
@@ -273,17 +273,17 @@ func envSettings() ServerSettings {
 		PublicIP:              getenvAny("", "PALWORLD_PUBLIC_IP", "PUBLIC_IP"),
 		PublicPort:            getenvAny("8211", "PALWORLD_PUBLIC_PORT", "PUBLIC_PORT", "PALWORLD_PORT", "PORT"),
 		ExpRate:               getenvFloatAny(1, "PALWORLD_EXP_RATE", "EXP_RATE"),
-		CaptureRate:           getenvFloatAny(1, "PALWORLD_CAPTURE_RATE", "CAPTURE_RATE"),
-		SpawnRate:             getenvFloatAny(1, "PALWORLD_SPAWN_RATE", "SPAWN_RATE"),
+		CaptureRate:           getenvFloatAny(1, "PALWORLD_CAPTURE_RATE", "PAL_CAPTURE_RATE", "CAPTURE_RATE"),
+		SpawnRate:             getenvFloatAny(1, "PALWORLD_SPAWN_RATE", "PAL_SPAWN_NUM_RATE", "SPAWN_RATE"),
 		CollectionDropRate:    getenvFloatAny(1, "PALWORLD_COLLECTION_DROP_RATE", "COLLECTION_DROP_RATE"),
-		EnemyDropRate:         getenvFloatAny(1, "PALWORLD_ENEMY_DROP_RATE", "ENEMY_DROP_RATE"),
-		EggHatchingHours:      getenvFloatAny(72, "PALWORLD_EGG_HATCHING_HOURS", "EGG_HATCHING_HOURS"),
+		EnemyDropRate:         getenvFloatAny(1, "PALWORLD_ENEMY_DROP_RATE", "ENEMY_DROP_ITEM_RATE", "ENEMY_DROP_RATE"),
+		EggHatchingHours:      getenvFloatAny(72, "PALWORLD_EGG_HATCHING_HOURS", "PAL_EGG_DEFAULT_HATCHING_TIME", "EGG_HATCHING_HOURS"),
 		AutoSaveSpan:          getenvIntAny(30, "PALWORLD_AUTO_SAVE_SPAN", "AUTO_SAVE_SPAN"),
 		DeathPenalty:          getenvAny("All", "PALWORLD_DEATH_PENALTY", "DEATH_PENALTY"),
-		BaseCampWorkerMax:     getenvIntAny(15, "PALWORLD_BASE_CAMP_WORKER_MAX", "BASE_CAMP_WORKER_MAX"),
-		GuildPlayerMax:        getenvIntAny(20, "PALWORLD_GUILD_PLAYER_MAX", "GUILD_PLAYER_MAX"),
-		BaseCampMaxInGuild:    getenvIntAny(4, "PALWORLD_BASE_CAMP_MAX_IN_GUILD", "BASE_CAMP_MAX_IN_GUILD"),
-		CrossplayPlatforms:    splitList(getenv("PALWORLD_CROSSPLAY_PLATFORMS", "Steam,Xbox,PS5,Mac")),
+		BaseCampWorkerMax:     getenvIntAny(15, "PALWORLD_BASE_CAMP_WORKER_MAX", "BASE_CAMP_WORKER_MAX_NUM", "BASE_CAMP_WORKER_MAX"),
+		GuildPlayerMax:        getenvIntAny(20, "PALWORLD_GUILD_PLAYER_MAX", "GUILD_PLAYER_MAX_NUM", "GUILD_PLAYER_MAX"),
+		BaseCampMaxInGuild:    getenvIntAny(4, "PALWORLD_BASE_CAMP_MAX_IN_GUILD", "BASE_CAMP_MAX_NUM_IN_GUILD", "BASE_CAMP_MAX_IN_GUILD"),
+		CrossplayPlatforms:    splitList(getenvAny("Steam,Xbox,PS5,Mac", "PALWORLD_CROSSPLAY_PLATFORMS", "CROSSPLAY_PLATFORMS")),
 		AutoPauseEnabled:      parseBool(getenvAny("", "PALWORLD_AUTO_PAUSE_ENABLED", "AUTO_PAUSE_ENABLED"), false),
 		PlayerLoggingEnabled:  parseBool(getenvAny("", "PALWORLD_PLAYER_LOGGING_ENABLED", "ENABLE_PLAYER_LOGGING"), true),
 		DiscordWebhookEnabled: parseBool(getenvAny("", "PALWORLD_DISCORD_WEBHOOK_ENABLED", "DISCORD_WEBHOOK_ENABLED"), false),
@@ -313,23 +313,58 @@ func (a *App) saveSettings(settings ServerSettings, actor string) error {
 }
 
 func settingsToEnv(settings ServerSettings) map[string]string {
+	players := strconv.Itoa(settings.Players)
+	expRate := trimFloat(settings.ExpRate)
+	captureRate := trimFloat(settings.CaptureRate)
+	spawnRate := trimFloat(settings.SpawnRate)
+	collectionDropRate := trimFloat(settings.CollectionDropRate)
+	enemyDropRate := trimFloat(settings.EnemyDropRate)
+	eggHatchingHours := trimFloat(settings.EggHatchingHours)
+	autoSaveSpan := strconv.Itoa(settings.AutoSaveSpan)
+	baseCampWorkerMax := strconv.Itoa(settings.BaseCampWorkerMax)
+	guildPlayerMax := strconv.Itoa(settings.GuildPlayerMax)
+	baseCampMaxInGuild := strconv.Itoa(settings.BaseCampMaxInGuild)
+	crossplayPlatforms := formatCrossplayPlatforms(settings.CrossplayPlatforms)
+
 	return map[string]string{
-		"SERVER_NAME": settings.ServerName, "SERVER_DESCRIPTION": settings.Description, "PLAYERS": strconv.Itoa(settings.Players),
+		"SERVER_NAME": settings.ServerName, "SERVER_DESCRIPTION": settings.Description, "PLAYERS": players, "SERVER_PLAYER_MAX_NUM": players,
 		"SERVER_PASSWORD": settings.ServerPassword, "ADMIN_PASSWORD": settings.AdminPassword, "COMMUNITY": formatBool(settings.Community),
 		"RCON_ENABLED": formatBool(settings.RconEnabled), "REST_API_ENABLED": formatBool(settings.RestAPIEnabled),
-		"PALWORLD_SERVER_NAME": settings.ServerName, "PALWORLD_SERVER_DESCRIPTION": settings.Description, "PALWORLD_PLAYERS": strconv.Itoa(settings.Players),
+		"EXP_RATE": expRate, "PAL_CAPTURE_RATE": captureRate, "PAL_SPAWN_NUM_RATE": spawnRate,
+		"COLLECTION_DROP_RATE": collectionDropRate, "ENEMY_DROP_ITEM_RATE": enemyDropRate,
+		"PAL_EGG_DEFAULT_HATCHING_TIME": eggHatchingHours, "AUTO_SAVE_SPAN": autoSaveSpan,
+		"DEATH_PENALTY": settings.DeathPenalty, "BASE_CAMP_WORKER_MAX_NUM": baseCampWorkerMax,
+		"GUILD_PLAYER_MAX_NUM": guildPlayerMax, "BASE_CAMP_MAX_NUM_IN_GUILD": baseCampMaxInGuild,
+		"CROSSPLAY_PLATFORMS": crossplayPlatforms, "AUTO_PAUSE_ENABLED": formatBool(settings.AutoPauseEnabled),
+		"ENABLE_PLAYER_LOGGING": formatBool(settings.PlayerLoggingEnabled), "DISCORD_WEBHOOK_ENABLED": formatBool(settings.DiscordWebhookEnabled),
+		"TARGET_MANIFEST_ID":   settings.TargetManifestID,
+		"PALWORLD_SERVER_NAME": settings.ServerName, "PALWORLD_SERVER_DESCRIPTION": settings.Description, "PALWORLD_PLAYERS": players,
 		"PALWORLD_SERVER_PASSWORD": settings.ServerPassword, "PALWORLD_ADMIN_PASSWORD": settings.AdminPassword, "PALWORLD_COMMUNITY": formatBool(settings.Community),
 		"PALWORLD_RCON_ENABLED": formatBool(settings.RconEnabled), "PALWORLD_REST_API_ENABLED": formatBool(settings.RestAPIEnabled),
-		"PALWORLD_PUBLIC_DOMAIN": settings.PublicDomain, "PALWORLD_PUBLIC_IP": settings.PublicIP, "PALWORLD_PUBLIC_PORT": settings.PublicPort, "PALWORLD_EXP_RATE": trimFloat(settings.ExpRate),
-		"PALWORLD_CAPTURE_RATE": trimFloat(settings.CaptureRate), "PALWORLD_SPAWN_RATE": trimFloat(settings.SpawnRate),
-		"PALWORLD_COLLECTION_DROP_RATE": trimFloat(settings.CollectionDropRate), "PALWORLD_ENEMY_DROP_RATE": trimFloat(settings.EnemyDropRate),
-		"PALWORLD_EGG_HATCHING_HOURS": trimFloat(settings.EggHatchingHours), "PALWORLD_AUTO_SAVE_SPAN": strconv.Itoa(settings.AutoSaveSpan),
-		"PALWORLD_DEATH_PENALTY": settings.DeathPenalty, "PALWORLD_BASE_CAMP_WORKER_MAX": strconv.Itoa(settings.BaseCampWorkerMax),
-		"PALWORLD_GUILD_PLAYER_MAX": strconv.Itoa(settings.GuildPlayerMax), "PALWORLD_BASE_CAMP_MAX_IN_GUILD": strconv.Itoa(settings.BaseCampMaxInGuild),
-		"PALWORLD_CROSSPLAY_PLATFORMS": strings.Join(settings.CrossplayPlatforms, ","), "PALWORLD_AUTO_PAUSE_ENABLED": formatBool(settings.AutoPauseEnabled),
+		"PALWORLD_PUBLIC_DOMAIN": settings.PublicDomain, "PALWORLD_PUBLIC_IP": settings.PublicIP, "PALWORLD_PUBLIC_PORT": settings.PublicPort, "PALWORLD_EXP_RATE": expRate,
+		"PALWORLD_CAPTURE_RATE": captureRate, "PALWORLD_SPAWN_RATE": spawnRate,
+		"PALWORLD_COLLECTION_DROP_RATE": collectionDropRate, "PALWORLD_ENEMY_DROP_RATE": enemyDropRate,
+		"PALWORLD_EGG_HATCHING_HOURS": eggHatchingHours, "PALWORLD_AUTO_SAVE_SPAN": autoSaveSpan,
+		"PALWORLD_DEATH_PENALTY": settings.DeathPenalty, "PALWORLD_BASE_CAMP_WORKER_MAX": baseCampWorkerMax,
+		"PALWORLD_GUILD_PLAYER_MAX": guildPlayerMax, "PALWORLD_BASE_CAMP_MAX_IN_GUILD": baseCampMaxInGuild,
+		"PALWORLD_CROSSPLAY_PLATFORMS": crossplayPlatforms, "PALWORLD_AUTO_PAUSE_ENABLED": formatBool(settings.AutoPauseEnabled),
 		"PALWORLD_PLAYER_LOGGING_ENABLED": formatBool(settings.PlayerLoggingEnabled), "PALWORLD_DISCORD_WEBHOOK_ENABLED": formatBool(settings.DiscordWebhookEnabled),
 		"PALWORLD_TARGET_MANIFEST_ID": settings.TargetManifestID,
 	}
+}
+
+func formatCrossplayPlatforms(platforms []string) string {
+	values := make([]string, 0, len(platforms))
+	for _, platform := range platforms {
+		platform = strings.TrimSpace(platform)
+		if platform != "" {
+			values = append(values, platform)
+		}
+	}
+	if len(values) == 0 {
+		values = []string{"Steam"}
+	}
+	return "(" + strings.Join(values, ",") + ")"
 }
 
 func (a *App) saveMaintenancePolicy(policy MaintenancePolicy, actor string) error {
