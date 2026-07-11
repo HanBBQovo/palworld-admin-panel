@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -25,10 +26,7 @@ func (a *App) executeRcon(command string, timeout time.Duration) (RconCommandRes
 	if !a.cfg.AllowRawRcon && !isAllowedRcon(command) {
 		return RconCommandResult{}, APIError{Status: http.StatusBadRequest, Message: "该 RCON 命令不在白名单内；如需开放任意命令，请设置 PANEL_ALLOW_RAW_RCON=true"}
 	}
-	password := a.cfg.RconPassword
-	if savedPassword := strings.TrimSpace(a.readSettings().AdminPassword); savedPassword != "" {
-		password = savedPassword
-	}
+	password := a.currentRconPassword(timeout)
 	if password == "" {
 		return RconCommandResult{}, errors.New("PALWORLD_ADMIN_PASSWORD 未配置，无法连接 RCON")
 	}
@@ -44,6 +42,39 @@ func (a *App) executeRcon(command string, timeout time.Duration) (RconCommandRes
 		return RconCommandResult{}, fmt.Errorf("容器内 RCON 调用失败: %v；原生 RCON 调用也失败: %w", err, directErr)
 	}
 	return RconCommandResult{Command: command, Output: output, ExecutedAt: formatTime(time.Now())}, nil
+}
+
+func (a *App) currentRconPassword(timeout time.Duration) string {
+	if value := a.containerEnvValue("ADMIN_PASSWORD", timeout); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(a.cfg.RconPassword); value != "" {
+		return value
+	}
+	return strings.TrimSpace(a.readSettings().AdminPassword)
+}
+
+func (a *App) containerEnvValue(key string, timeout time.Duration) string {
+	if strings.TrimSpace(key) == "" {
+		return ""
+	}
+	if timeout <= 0 || timeout > 1500*time.Millisecond {
+		timeout = 1500 * time.Millisecond
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	output, err := runCmd(ctx, "", "docker", "inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", a.cfg.Container)
+	if err != nil {
+		return ""
+	}
+	prefix := key + "="
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
 }
 
 func (a *App) runContainerRcon(command string, timeout time.Duration) (string, error) {
@@ -226,8 +257,21 @@ func parsePlayers(output string) []Player {
 	return players
 }
 
+func clonePlayers(players []Player) []Player {
+	if len(players) == 0 {
+		return []Player{}
+	}
+	return append([]Player{}, players...)
+}
+
 func normalizeRconOutput(value string) string {
 	return strings.TrimSpace(strings.ReplaceAll(value, "\x00", ""))
+}
+
+var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+
+func cleanLogMessage(value string) string {
+	return strings.TrimSpace(ansiEscapePattern.ReplaceAllString(strings.ReplaceAll(value, "\x00", ""), ""))
 }
 
 func isCompleteSteamID(value string) bool {

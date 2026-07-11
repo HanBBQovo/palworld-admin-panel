@@ -87,7 +87,7 @@ func (a *App) loadPlayers() ([]Player, error) {
 	a.playersMu.Lock()
 	defer a.playersMu.Unlock()
 	if !a.lastPlayersAt.IsZero() && time.Since(a.lastPlayersAt) <= 2*time.Second {
-		return append([]Player(nil), a.lastPlayers...), nil
+		return clonePlayers(a.lastPlayers), nil
 	}
 
 	result, err := a.executeRcon("ShowPlayers", a.cfg.RconTimeout)
@@ -97,7 +97,7 @@ func (a *App) loadPlayers() ([]Player, error) {
 	players := parsePlayers(result.Output)
 	a.lastPlayers = players
 	a.lastPlayersAt = time.Now()
-	return append([]Player(nil), players...), nil
+	return clonePlayers(players), nil
 }
 
 func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
@@ -111,6 +111,7 @@ func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			timestamp, message := parseDockerLogLine(line)
+			message = cleanLogMessage(message)
 			lower := strings.ToLower(message)
 			level := "info"
 			if strings.Contains(lower, "error") || strings.Contains(lower, "failed") {

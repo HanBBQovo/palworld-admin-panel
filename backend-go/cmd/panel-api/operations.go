@@ -1,8 +1,9 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -27,18 +28,29 @@ func (a *App) backupRows(ctx context.Context, limit int) []Backup {
 			continue
 		}
 		size := info.Size()
-		if entry.IsDir() {
-			size = pathSizeBytes(ctx, fullPath)
-		}
+		format := backupFormatFor(entry.Name(), entry.IsDir())
+		restorable := format == "directory" || format == "tar.gz"
 		backupType := "automatic"
 		if strings.Contains(strings.ToLower(entry.Name()), "manual") {
 			backupType = "manual"
 		}
-		note := "文件备份，恢复前需要手动解包。"
 		if entry.IsDir() {
-			note = "目录备份，可直接恢复。"
+			size = pathSizeBytes(ctx, fullPath)
 		}
-		rows = append(rows, Backup{ID: entry.Name(), CreatedAt: formatTime(info.ModTime()), Size: formatBytes(size), Type: backupType, Status: "ready", Note: note})
+		note := "压缩备份，可由面板停服后恢复。"
+		if entry.IsDir() {
+			note = "目录备份，可由面板停服后恢复。"
+		} else if !restorable {
+			note = "不支持的备份格式，仅展示。"
+		}
+		status := "ready"
+		if !restorable {
+			status = "failed"
+		}
+		rows = append(rows, Backup{
+			ID: entry.Name(), CreatedAt: formatTime(info.ModTime()), Size: formatBytes(size),
+			Type: backupType, Status: status, Format: format, Restorable: restorable, Note: note,
+		})
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].CreatedAt > rows[j].CreatedAt })
 	if len(rows) > limit {
@@ -51,18 +63,31 @@ func (a *App) createBackup(actor string) (map[string]any, error) {
 	op := a.startOperation("backup:create", actor, nil)
 	id := "manual-" + time.Now().Format("20060102-150405")
 	target := filepath.Join(a.cfg.BackupsDir, id)
+	tempTarget := target + ".tmp"
 	if err := os.MkdirAll(a.cfg.BackupsDir, 0o755); err != nil {
 		a.finishOperation(op, "failed", err.Error())
 		return nil, err
 	}
-	_, _ = a.executeRcon("Save", a.cfg.RconTimeout)
-	if err := copyDir(a.cfg.SavesDir, target); err != nil {
+	_ = os.RemoveAll(tempTarget)
+	saveWarning := ""
+	if _, err := a.executeRcon("Save", a.cfg.RconTimeout); err != nil {
+		saveWarning = "（RCON Save 失败，已直接复制当前存档: " + err.Error() + "）"
+		a.audit("warn", "backup", "创建手动备份前 Save 失败，已继续复制当前存档: "+err.Error(), actor, nil)
+	}
+	if err := copyDir(a.cfg.SavesDir, tempTarget); err != nil {
+		_ = os.RemoveAll(tempTarget)
 		a.finishOperation(op, "failed", err.Error())
 		return nil, err
 	}
-	a.finishOperation(op, "success", "已创建手动备份 "+id)
+	if err := os.Rename(tempTarget, target); err != nil {
+		_ = os.RemoveAll(tempTarget)
+		a.finishOperation(op, "failed", err.Error())
+		return nil, err
+	}
+	message := "已创建手动备份 " + id + saveWarning
+	a.finishOperation(op, "success", message)
 	a.audit("info", "backup", "已创建手动备份 "+id, actor, map[string]any{"backupId": id})
-	return map[string]any{"ok": true, "message": "已创建手动备份 " + id}, nil
+	return map[string]any{"ok": true, "message": message}, nil
 }
 
 func (a *App) restoreBackup(id, actor string) (map[string]any, error) {
@@ -76,24 +101,51 @@ func (a *App) restoreBackup(id, actor string) (map[string]any, error) {
 		a.finishOperation(op, "failed", err.Error())
 		return nil, err
 	}
-	if !info.IsDir() {
-		err := errors.New("当前只支持恢复目录备份")
+	format := backupFormatFor(id, info.IsDir())
+	if format != "directory" && format != "tar.gz" {
+		err := fmt.Errorf("不支持恢复该备份格式: %s", format)
 		a.finishOperation(op, "failed", err.Error())
 		return nil, err
 	}
+	_, _ = a.executeRcon("Save", a.cfg.RconTimeout)
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer stopCancel()
+	if _, err := a.runCompose(stopCtx, "stop", "palworld"); err != nil {
+		a.finishOperation(op, "failed", err.Error())
+		return nil, fmt.Errorf("停止游戏容器失败: %w", err)
+	}
+	failAfterStop := func(err error) (map[string]any, error) {
+		restartCtx, restartCancel := context.WithTimeout(context.Background(), 70*time.Second)
+		defer restartCancel()
+		if _, restartErr := a.runCompose(restartCtx, "up", "-d", "--force-recreate", "palworld"); restartErr != nil {
+			err = fmt.Errorf("%w；并且恢复失败后重新启动游戏容器也失败: %v", err, restartErr)
+		}
+		a.finishOperation(op, "failed", err.Error())
+		return nil, err
+	}
+	clearTarget, restoreTarget := a.restorePathsForBackup(format)
 	preRestore := filepath.Join(a.cfg.BackupsDir, "pre-restore-"+time.Now().Format("20060102-150405"))
-	_ = copyDir(a.cfg.SavesDir, preRestore)
-	if err := os.RemoveAll(a.cfg.SavesDir); err != nil {
-		a.finishOperation(op, "failed", err.Error())
-		return nil, err
+	_ = copyDir(clearTarget, preRestore)
+	if err := os.RemoveAll(clearTarget); err != nil {
+		return failAfterStop(err)
 	}
-	if err := copyDir(source, a.cfg.SavesDir); err != nil {
+	if err := os.MkdirAll(clearTarget, 0o755); err != nil {
+		return failAfterStop(err)
+	}
+	if err := restoreBackupSource(source, restoreTarget, format); err != nil {
+		_ = os.RemoveAll(clearTarget)
+		_ = copyDir(preRestore, clearTarget)
+		return failAfterStop(err)
+	}
+	startCtx, startCancel := context.WithTimeout(context.Background(), 70*time.Second)
+	defer startCancel()
+	if _, err := a.runCompose(startCtx, "up", "-d", "--force-recreate", "palworld"); err != nil {
 		a.finishOperation(op, "failed", err.Error())
-		return nil, err
+		return nil, fmt.Errorf("备份已恢复，但重启游戏容器失败: %w", err)
 	}
 	a.finishOperation(op, "success", "已恢复 "+id)
-	a.audit("warn", "backup", "已恢复备份 "+id+"；重启游戏容器后生效。", actor, map[string]any{"backupId": id})
-	return map[string]any{"ok": true, "message": "已恢复 " + id + "，建议立即重启游戏容器"}, nil
+	a.audit("warn", "backup", "已恢复备份 "+id+" 并重建游戏容器。", actor, map[string]any{"backupId": id, "format": format, "preRestore": filepath.Base(preRestore)})
+	return map[string]any{"ok": true, "message": "已恢复 " + id + "，游戏容器正在按恢复后的存档启动"}, nil
 }
 
 func (a *App) maintenance(action, actor string) (map[string]any, error) {
@@ -118,7 +170,7 @@ func (a *App) maintenance(action, actor string) (map[string]any, error) {
 		a.audit("info", "rcon", "已执行 Save", actor, nil)
 		return success(result.Output)
 	case action == "server:shutdown":
-		result, err := a.executeRcon("Shutdown 300 服务器将在5分钟后关闭", a.cfg.RconTimeout)
+		result, err := a.executeRcon("Shutdown 300 Server_shutdown_in_5_minutes", a.cfg.RconTimeout)
 		if err != nil {
 			return fail(err)
 		}
@@ -138,7 +190,7 @@ func (a *App) maintenance(action, actor string) (map[string]any, error) {
 		if _, err := a.runCompose(ctx, "pull", "palworld"); err != nil {
 			return fail(err)
 		}
-		if _, err := a.runCompose(ctx, "up", "-d", "palworld"); err != nil {
+		if _, err := a.runCompose(ctx, "up", "-d", "--force-recreate", "palworld"); err != nil {
 			return fail(err)
 		}
 		a.audit("warn", "update", "已执行服务端更新流程，Compose 项目: "+a.cfg.ComposeProject, actor, nil)
@@ -169,6 +221,9 @@ func copyDir(src, dst string) error {
 	}
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
 			return err
 		}
 		rel, err := filepath.Rel(src, path)
@@ -184,6 +239,9 @@ func copyDir(src, dst string) error {
 		}
 		in, err := os.Open(path)
 		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
 			return err
 		}
 		defer in.Close()
@@ -195,4 +253,97 @@ func copyDir(src, dst string) error {
 		_, err = io.Copy(out, in)
 		return err
 	})
+}
+
+func backupFormatFor(name string, isDir bool) string {
+	if isDir {
+		return "directory"
+	}
+	lower := strings.ToLower(name)
+	if strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") {
+		return "tar.gz"
+	}
+	return "file"
+}
+
+func (a *App) restorePathsForBackup(format string) (clearTarget string, restoreTarget string) {
+	if format == "tar.gz" {
+		savedDir := filepath.Dir(a.cfg.SavesDir)
+		return savedDir, filepath.Dir(savedDir)
+	}
+	return a.cfg.SavesDir, a.cfg.SavesDir
+}
+
+func restoreBackupSource(source, destination, format string) error {
+	switch format {
+	case "directory":
+		return copyDir(source, destination)
+	case "tar.gz":
+		return extractTarGz(source, destination)
+	default:
+		return fmt.Errorf("不支持恢复该备份格式: %s", format)
+	}
+}
+
+func extractTarGz(source, destination string) error {
+	file, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return err
+	}
+	defer gzipReader.Close()
+	tarReader := tar.NewReader(gzipReader)
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if header == nil {
+			continue
+		}
+		if err := extractTarEntry(tarReader, header, destination); err != nil {
+			return err
+		}
+	}
+}
+
+func extractTarEntry(reader io.Reader, header *tar.Header, destination string) error {
+	name := strings.TrimPrefix(filepath.Clean(header.Name), string(filepath.Separator))
+	if name == "." || name == "" {
+		return nil
+	}
+	target := filepath.Join(destination, name)
+	destAbs, _ := filepath.Abs(destination)
+	targetAbs, _ := filepath.Abs(target)
+	if targetAbs != destAbs && !strings.HasPrefix(targetAbs, destAbs+string(filepath.Separator)) {
+		return fmt.Errorf("备份包含非法路径: %s", header.Name)
+	}
+	switch header.Typeflag {
+	case tar.TypeDir:
+		return os.MkdirAll(target, 0o755)
+	case tar.TypeReg, tar.TypeRegA:
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		mode := fs.FileMode(header.Mode) & 0o777
+		if mode == 0 {
+			mode = 0o644
+		}
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+		if err != nil {
+			return err
+		}
+		defer out.Close()
+		_, err = io.Copy(out, reader)
+		return err
+	default:
+		return nil
+	}
 }

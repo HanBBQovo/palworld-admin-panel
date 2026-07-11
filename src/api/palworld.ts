@@ -66,6 +66,8 @@ export interface Backup {
   size: string
   type: 'automatic' | 'manual'
   status: BackupStatus
+  format: 'directory' | 'tar.gz' | 'file'
+  restorable: boolean
   note: string
 }
 
@@ -227,6 +229,8 @@ const backups: Backup[] = [
     size: '88 MB',
     type: 'automatic',
     status: 'ready',
+    format: 'tar.gz',
+    restorable: true,
     note: '首轮自动备份策略已启用，保留最近 72 份。',
   },
   {
@@ -235,6 +239,8 @@ const backups: Backup[] = [
     size: '-',
     type: 'manual',
     status: 'running',
+    format: 'directory',
+    restorable: false,
     note: '调整倍率或恢复存档前建议手动创建。',
   },
 ]

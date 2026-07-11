@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"net"
 	"net/http"
@@ -253,11 +254,24 @@ func totalMemoryBytes() uint64 {
 }
 
 func lastModified(target string) string {
-	info, err := os.Stat(target)
-	if err != nil {
+	var newest time.Time
+	err := filepath.WalkDir(target, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		info, statErr := d.Info()
+		if statErr != nil {
+			return nil
+		}
+		if info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+		return nil
+	})
+	if err != nil || newest.IsZero() {
 		return "-"
 	}
-	return formatTime(info.ModTime())
+	return formatTime(newest)
 }
 
 func formatTimeString(value string) string {

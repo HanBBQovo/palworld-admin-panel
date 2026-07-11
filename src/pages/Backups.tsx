@@ -29,7 +29,7 @@ export default function Backups() {
     const ok = await confirm({
       title: label,
       description: destructive
-        ? '恢复备份会覆盖当前世界存档。执行前建议确认没有玩家在线，并额外保留一份当前 SaveGames。'
+        ? '恢复备份会覆盖当前世界存档。后端会先尝试 Save，然后停止游戏容器、保留 pre-restore 快照、恢复备份并重建容器。'
         : '确认提交该维护动作？面板后端会在游戏服务器主机上执行对应的存档和 RCON 操作。',
       confirmText: label,
       variant: destructive ? 'destructive' : 'default',
@@ -45,7 +45,7 @@ export default function Backups() {
     }
   }
 
-  const readyCount = (data ?? []).filter((item) => item.status === 'ready').length
+  const readyCount = (data ?? []).filter((item) => item.restorable).length
 
   return (
     <PageShell
@@ -77,11 +77,11 @@ export default function Backups() {
         <PageStatStrip>
           <PageStat label="自动备份" value={status.data?.maintenance.backupEnabled ? status.data.maintenance.backupCron : '关闭'} note="当前 Cron 策略" />
           <PageStat label="保留份数" value={status.data?.maintenance.backupRetention ?? '-'} note="自动清理上限" />
-          <PageStat label="可恢复备份" value={readyCount} note="目录备份可直接恢复" />
+          <PageStat label="可恢复备份" value={readyCount} note="目录和 tar.gz 均支持" />
           <PageStat label="世界大小" value={status.data ? `${status.data.worldSizeGb.toFixed(2)} GB` : '-'} note="当前 SaveGames" />
         </PageStatStrip>
 
-        <PageSurface title="备份列表" description="直接扫描服务器备份目录；文件备份仅展示，目录备份支持恢复。">
+        <PageSurface title="备份列表" description="直接扫描服务器备份目录；目录备份和上游 tar.gz 自动备份都支持恢复。">
           {error ? (
             <ErrorState message={error} onRetry={refresh} />
           ) : loading && !data ? (
@@ -98,6 +98,7 @@ export default function Backups() {
                   <TableHead className="w-[180px]">时间</TableHead>
                   <TableHead className="w-[110px]">大小</TableHead>
                   <TableHead className="w-[100px]">类型</TableHead>
+                  <TableHead className="w-[110px]">格式</TableHead>
                   <TableHead className="w-[110px]">状态</TableHead>
                   <TableHead className="w-[220px] text-right">操作</TableHead>
                 </TableRow>
@@ -112,6 +113,7 @@ export default function Backups() {
                     <TableCell className="whitespace-nowrap">{backup.createdAt}</TableCell>
                     <TableCell className="whitespace-nowrap">{backup.size}</TableCell>
                     <TableCell className="whitespace-nowrap">{backup.type === 'automatic' ? '自动' : '手动'}</TableCell>
+                    <TableCell className="whitespace-nowrap">{backup.format}</TableCell>
                     <TableCell className="whitespace-nowrap"><Badge variant={statusVariant[backup.status]}>{backup.status}</Badge></TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2 whitespace-nowrap">
@@ -120,7 +122,8 @@ export default function Backups() {
                           variant="destructive"
                           size="sm"
                           className="gap-2"
-                          disabled={backup.status !== 'ready'}
+                          disabled={!backup.restorable}
+                          title={backup.restorable ? '停服后恢复该备份并重建游戏容器' : '该备份格式不支持面板恢复'}
                           onClick={() => runAction(`backup:restore:${backup.id}`, `恢复 ${backup.id}`, true)}
                         >
                           <RotateCcw className="h-4 w-4" />

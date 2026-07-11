@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -37,6 +38,23 @@ func TestParsePlayersHandlesPalworldNullPaddedSteamID(t *testing.T) {
 	}
 	if player.SteamID != "-" || player.Manageable {
 		t.Fatalf("expected truncated Steam ID to be unavailable: %#v", player)
+	}
+}
+
+func TestClonePlayersKeepsEmptySliceAsJSONArray(t *testing.T) {
+	raw, err := json.Marshal(clonePlayers(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "[]" {
+		t.Fatalf("expected empty JSON array, got %s", raw)
+	}
+}
+
+func TestCleanLogMessageStripsAnsiEscapes(t *testing.T) {
+	got := cleanLogMessage("\x1b[36mWHAT\x1b[0m: test\x00")
+	if got != "WHAT: test" {
+		t.Fatalf("unexpected cleaned log message: %q", got)
 	}
 }
 
