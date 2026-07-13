@@ -224,13 +224,12 @@ var commandDefinitions = []RconCommandDefinition{
 	{ID: "info", Label: "查看服务器信息", Command: "Info", Description: "显示服务器基础信息，用来确认 RCON 已连通。", Risk: "low", Category: "info"},
 	{ID: "players", Label: "查看在线玩家", Command: "ShowPlayers", Description: "列出当前在线玩家、玩家 ID 和 SteamID。", Risk: "low", Category: "player"},
 	{ID: "save", Label: "立即保存世界", Command: "Save", Description: "手动保存当前世界状态，备份或维护前建议先执行。", Risk: "low", Category: "world"},
-	{ID: "broadcast", Label: "广播消息", Command: "Broadcast Maintenance_in_5_minutes", Description: "向所有在线玩家发送公告；RCON 广播只支持 ASCII 文本。", Risk: "low", Category: "broadcast"},
 	{ID: "kick", Label: "踢出玩家", Command: "KickPlayer <SteamID>", Description: "把指定玩家踢下线，需要把 <SteamID> 替换成真实值。", Risk: "medium", Category: "player"},
 	{ID: "ban", Label: "封禁玩家", Command: "BanPlayer <SteamID>", Description: "封禁指定玩家，需要谨慎执行并记录原因。", Risk: "high", Category: "player"},
 	{ID: "shutdown", Label: "延迟关服", Command: "Shutdown 300 Server_shutdown_in_5_minutes", Description: "倒计时关服并给玩家提示；RCON 提示文本只支持 ASCII。", Risk: "high", Category: "shutdown"},
 }
 
-var allowedRconPrefixes = []string{"Info", "ShowPlayers", "Save", "Broadcast", "KickPlayer", "BanPlayer", "Shutdown"}
+var allowedRconPrefixes = []string{"Info", "ShowPlayers", "Save", "KickPlayer", "BanPlayer", "Shutdown"}
 
 func main() {
 	loadDotEnv(".env")

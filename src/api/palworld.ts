@@ -126,6 +126,13 @@ export interface RconCommandResult {
   executedAt: string
 }
 
+export interface AnnouncementResult {
+  ok: boolean
+  message: string
+  transport: string
+  sentAt: string
+}
+
 export interface RconCommandDefinition {
   id: string
   label: string
@@ -469,14 +476,6 @@ const commandDefinitions: RconCommandDefinition[] = [
     category: 'world',
   },
   {
-    id: 'broadcast',
-    label: '广播消息',
-    command: 'Broadcast 服务器将在5分钟后维护',
-    description: '向所有在线玩家发送一条公告。',
-    risk: 'low',
-    category: 'broadcast',
-  },
-  {
     id: 'kick',
     label: '踢出玩家',
     command: 'KickPlayer <SteamID>',
@@ -597,6 +596,21 @@ export async function runRconCommand(command: string): Promise<RconCommandResult
     output: command.toLowerCase().includes('showplayers')
       ? 'name,playeruid,steamid\nNo online players'
       : `模拟执行完成: ${command}`,
+  })
+}
+
+export function announceMessage(message: string): Promise<AnnouncementResult> {
+  if (!USE_MOCK_API) {
+    return apiRequest<AnnouncementResult>('/palworld/announce', {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    })
+  }
+  return delay({
+    ok: true,
+    message: '广播已发送',
+    transport: 'Palworld REST API',
+    sentAt: new Date().toLocaleString('zh-CN', { hour12: false }),
   })
 }
 

@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type AdvancedLayer struct {
@@ -176,6 +177,7 @@ func (a *App) registerAdvancedRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/palworld/live/metrics", a.authed("GET", a.handleLiveMetrics))
 	mux.HandleFunc("/api/palworld/live/players", a.authed("GET", a.handleLivePlayers))
 	mux.HandleFunc("/api/palworld/live/map", a.authed("GET", a.handleLiveMap))
+	mux.HandleFunc("/api/palworld/announce", a.authed("POST", a.handleAnnouncement))
 	mux.HandleFunc("/api/palworld/world/status", a.authed("GET", a.handleWorldStatus))
 	mux.HandleFunc("/api/palworld/world/players", a.authed("GET", a.handleWorldPlayers))
 	mux.HandleFunc("/api/palworld/world/players/", a.authed("GET", a.handleWorldPlayer))
@@ -184,6 +186,44 @@ func (a *App) registerAdvancedRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/palworld/editor/status", a.authed("GET", a.handleEditorStatus))
 	mux.HandleFunc("/api/palworld/editor/session", a.authed("POST", a.handleEditorSession))
 	mux.HandleFunc("/editor/", a.handleEditorProxy)
+}
+
+const maxAnnouncementRunes = 500
+
+func (a *App) handleAnnouncement(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Message string `json:"message"`
+	}
+	if err := readJSON(r, &request); err != nil {
+		writeError(w, APIError{Status: http.StatusBadRequest, Message: "广播内容不是合法 JSON"})
+		return
+	}
+	message, err := normalizeAnnouncement(request.Message)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	transport := "Palworld REST API"
+	if err := a.palREST(http.MethodPost, "/v1/api/announce", map[string]string{"message": message}, nil); err != nil {
+		writeError(w, APIError{Status: http.StatusServiceUnavailable, Message: "广播发送失败: " + err.Error()})
+		return
+	}
+	a.audit("info", "server", "已发送服务器广播", "admin", map[string]any{"transport": transport, "characters": utf8.RuneCountInString(message)})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "广播已发送", "transport": transport, "sentAt": formatTime(time.Now())})
+}
+
+func normalizeAnnouncement(value string) (string, error) {
+	message := strings.TrimSpace(value)
+	if message == "" {
+		return "", APIError{Status: http.StatusBadRequest, Message: "广播内容不能为空"}
+	}
+	if !utf8.ValidString(message) {
+		return "", APIError{Status: http.StatusBadRequest, Message: "广播内容不是有效 UTF-8 文本"}
+	}
+	if utf8.RuneCountInString(message) > maxAnnouncementRunes {
+		return "", APIError{Status: http.StatusBadRequest, Message: fmt.Sprintf("广播内容不能超过 %d 个字符", maxAnnouncementRunes)}
+	}
+	return message, nil
 }
 
 func (a *App) handleAdvancedCapabilities(w http.ResponseWriter, _ *http.Request) {

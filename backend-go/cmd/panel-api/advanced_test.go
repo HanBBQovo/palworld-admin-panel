@@ -166,6 +166,22 @@ func TestWorldSnapshotNeedsRefreshTracksLatestBackup(t *testing.T) {
 	}
 }
 
+func TestNormalizeAnnouncementSupportsChinese(t *testing.T) {
+	got, err := normalizeAnnouncement("  服务器将在十分钟后维护  ")
+	if err != nil || got != "服务器将在十分钟后维护" {
+		t.Fatalf("unexpected announcement: %q err=%v", got, err)
+	}
+	if _, err := normalizeAnnouncement("   "); err == nil {
+		t.Fatal("expected empty announcement to fail")
+	}
+	if _, err := normalizeAnnouncement(strings.Repeat("测", maxAnnouncementRunes+1)); err == nil {
+		t.Fatal("expected oversized announcement to fail")
+	}
+	if isAllowedRcon("Broadcast 服务器维护") {
+		t.Fatal("broadcast must use the UTF-8 REST announcement endpoint")
+	}
+}
+
 func writeTarGz(t *testing.T, path string, files map[string]string) {
 	t.Helper()
 	file, err := os.Create(path)
