@@ -119,32 +119,3 @@ export function PageStat({ label, value, note, className }: PageStatProps) {
     </div>
   )
 }
-
-export function PageSubnav({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('ops-subnav', className)}>{children}</div>
-}
-
-export function PageSubnavButton({
-  active,
-  children,
-  onClick,
-}: {
-  active: boolean
-  children: ReactNode
-  onClick?: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'ops-subnav-button',
-        active
-          ? 'ops-subnav-button-active'
-          : 'ops-subnav-button-idle'
-      )}
-    >
-      {children}
-    </button>
-  )
-}

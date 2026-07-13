@@ -10,6 +10,10 @@ export interface ResourceState<T> {
   refresh: () => void
 }
 
+interface ResourceOptions {
+  refreshIntervalMs?: number
+}
+
 /**
  * 标准异步数据获取 hook —— 取代每个页面手搓的
  * `useEffect + loading + error + 用 refreshKey 透传刷新` 这套样板。
@@ -30,6 +34,7 @@ export interface ResourceState<T> {
 export function useResource<T>(
   fetcher: () => Promise<T>,
   deps: DependencyList = [],
+  options: ResourceOptions = {},
 ): ResourceState<T> {
   const [data, setData] = useState<T | null>(null)
   const [loading, setLoading] = useState(true)
@@ -63,6 +68,14 @@ export function useResource<T>(
     // fetcher 每次 render 都是新引用,刻意只依赖调用方声明的 deps + nonce。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, nonce])
+
+  useEffect(() => {
+    if (!options.refreshIntervalMs) return undefined
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refresh()
+    }, options.refreshIntervalMs)
+    return () => window.clearInterval(timer)
+  }, [options.refreshIntervalMs, refresh])
 
   return { data, loading, error, refresh }
 }

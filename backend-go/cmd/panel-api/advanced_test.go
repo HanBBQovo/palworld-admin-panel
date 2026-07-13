@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -117,6 +118,51 @@ func TestWorldSnapshotAvailableUsesLevelSave(t *testing.T) {
 	}
 	if !app.worldSnapshotAvailable() {
 		t.Fatal("snapshot with Level.sav must be available")
+	}
+}
+
+func TestWorldSnapshotNeedsRefreshTracksLatestBackup(t *testing.T) {
+	root := t.TempDir()
+	backupsDir := filepath.Join(root, "backups")
+	stateDir := filepath.Join(root, "panel-state")
+	snapshotDir := filepath.Join(root, "world-snapshot")
+	for _, dir := range []string{backupsDir, stateDir, snapshotDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldPath := filepath.Join(backupsDir, "palworld-save-old.tar.gz")
+	writeTarGz(t, oldPath, map[string]string{"Level.sav": "old"})
+	oldTime := time.Now().Add(-2 * time.Minute)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(snapshotDir, "Level.sav"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{cfg: Config{BackupsDir: backupsDir, StateDir: stateDir, WorldSnapshot: snapshotDir}}
+	metadata, err := json.Marshal(WorldSnapshot{ID: "snapshot", BackupID: filepath.Base(oldPath)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(app.worldSnapshotFile(), metadata, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	needsRefresh, latestBackupID, err := app.worldSnapshotNeedsRefresh()
+	if err != nil || needsRefresh || latestBackupID != filepath.Base(oldPath) {
+		t.Fatalf("expected current snapshot, refresh=%v latest=%q err=%v", needsRefresh, latestBackupID, err)
+	}
+
+	newPath := filepath.Join(backupsDir, "palworld-save-new.tar.gz")
+	writeTarGz(t, newPath, map[string]string{"Level.sav": "new"})
+	newTime := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(newPath, newTime, newTime); err != nil {
+		t.Fatal(err)
+	}
+	needsRefresh, latestBackupID, err = app.worldSnapshotNeedsRefresh()
+	if err != nil || !needsRefresh || latestBackupID != filepath.Base(newPath) {
+		t.Fatalf("expected newer backup, refresh=%v latest=%q err=%v", needsRefresh, latestBackupID, err)
 	}
 }
 

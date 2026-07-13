@@ -1,12 +1,15 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ElementType } from 'react'
 import {
+  Activity,
   Archive,
-  Boxes,
   ChevronLeft,
   ChevronRight,
+  ContactRound,
+  FilePenLine,
   Gamepad2,
   LayoutDashboard,
   LogOut,
+  MapPinned,
   PanelLeft,
   ScrollText,
   Settings,
@@ -31,9 +34,12 @@ const Console = lazy(() => import('@/pages/Console'))
 const Backups = lazy(() => import('@/pages/Backups'))
 const Maintenance = lazy(() => import('@/pages/Maintenance'))
 const SettingsPage = lazy(() => import('@/pages/Settings'))
-const Advanced = lazy(() => import('@/pages/Advanced'))
+const Realtime = lazy(() => import('@/pages/Realtime'))
+const PlayerArchives = lazy(() => import('@/pages/PlayerArchives'))
+const WorldGuilds = lazy(() => import('@/pages/WorldGuilds'))
+const SaveEditor = lazy(() => import('@/pages/SaveEditor'))
 
-type Page = 'overview' | 'advanced' | 'players' | 'console' | 'backups' | 'maintenance' | 'settings'
+type Page = 'overview' | 'realtime' | 'player-archives' | 'world-guilds' | 'save-editor' | 'players' | 'console' | 'backups' | 'maintenance' | 'settings'
 
 interface NavItem {
   key: Page
@@ -43,7 +49,10 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { key: 'overview', label: '状态台', icon: LayoutDashboard },
-  { key: 'advanced', label: '高级控制台', icon: Boxes },
+  { key: 'realtime', label: '实时地图', icon: Activity },
+  { key: 'player-archives', label: '玩家档案', icon: ContactRound },
+  { key: 'world-guilds', label: '世界地图与公会', icon: MapPinned },
+  { key: 'save-editor', label: '存档编辑', icon: FilePenLine },
   { key: 'players', label: '在线玩家', icon: Users },
   { key: 'console', label: '命令与日志', icon: Terminal },
   { key: 'backups', label: '世界与备份', icon: Archive },
@@ -254,7 +263,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                     transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
                   >
                     {currentPage === 'overview' ? <Overview /> : null}
-                    {currentPage === 'advanced' ? <Advanced /> : null}
+                    {currentPage === 'realtime' ? <Realtime /> : null}
+                    {currentPage === 'player-archives' ? <PlayerArchives /> : null}
+                    {currentPage === 'world-guilds' ? <WorldGuilds /> : null}
+                    {currentPage === 'save-editor' ? <SaveEditor /> : null}
                     {currentPage === 'players' ? <Players /> : null}
                     {currentPage === 'console' ? <Console /> : null}
                     {currentPage === 'backups' ? <Backups /> : null}

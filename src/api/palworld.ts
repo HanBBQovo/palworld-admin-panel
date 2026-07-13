@@ -275,6 +275,9 @@ export interface WorldStatus {
   snapshot: WorldSnapshot
   indexReachable: boolean
   editorInstalled: boolean
+  latestBackupId: string
+  upToDate: boolean
+  autoRefreshSeconds: number
 }
 
 export interface EditorStatus {
@@ -284,18 +287,6 @@ export interface EditorStatus {
   applyEnabled: boolean
   safety: AdvancedCapabilities['safety']
   supportedActions: string[]
-}
-
-export interface EditorPreview {
-  id: string
-  action: string
-  targetPlayer?: string
-  changes: Record<string, unknown>
-  risk: 'high'
-  requiresStop: boolean
-  canApplyNow: boolean
-  blockedReasons: string[]
-  createdAt: string
 }
 
 export interface EditorSessionResult {
@@ -563,17 +554,6 @@ export function refreshWorldSnapshot(): Promise<{ ok: boolean; message: string; 
 
 export function getEditorStatus(): Promise<EditorStatus> {
   return apiRequest<EditorStatus>('/palworld/editor/status')
-}
-
-export function createEditorPreview(input: {
-  action: string
-  targetPlayer?: string
-  changes: Record<string, unknown>
-}): Promise<EditorPreview> {
-  return apiRequest<EditorPreview>('/palworld/editor/previews', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  })
 }
 
 export function runEditorSession(action: 'start' | 'open' | 'stop'): Promise<EditorSessionResult> {

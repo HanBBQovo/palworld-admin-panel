@@ -50,6 +50,7 @@ type Config struct {
 	WorldIndexURL   string
 	WorldIndexPass  string
 	WorldSnapshot   string
+	WorldRefresh    time.Duration
 	EditorURL       string
 	EditorDir       string
 	EditorImage     string
@@ -246,6 +247,7 @@ func main() {
 	}
 
 	app := &App{cfg: cfg}
+	app.startWorldSnapshotWatcher()
 	addr := fmt.Sprintf("%s:%d", cfg.Bind, cfg.Port)
 	log.Printf("palworld panel api listening on %s", addr)
 	if err := http.ListenAndServe(addr, app.routes()); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -288,6 +290,7 @@ func loadConfig() Config {
 		WorldIndexURL:   strings.TrimRight(getenv("PALWORLD_WORLD_INDEX_URL", "http://127.0.0.1:16826"), "/"),
 		WorldIndexPass:  getenvAny("", "PALWORLD_WORLD_INDEX_PASSWORD", "PANEL_AUTH_PASSWORD"),
 		WorldSnapshot:   getenv("PALWORLD_WORLD_SNAPSHOT_DIR", filepath.Join(stateDir, "world-snapshot")),
+		WorldRefresh:    time.Duration(getenvInt("PALWORLD_WORLD_INDEX_REFRESH_SECONDS", 60)) * time.Second,
 		EditorURL:       strings.TrimRight(getenv("PALWORLD_SAVE_EDITOR_URL", "http://127.0.0.1:16827"), "/"),
 		EditorDir:       getenv("PALWORLD_SAVE_EDITOR_DIR", filepath.Join(getenv("PALWORLD_COMPOSE_DIR", "."), "tools", "palworld-save-pal")),
 		EditorImage:     getenv("PALWORLD_SAVE_EDITOR_IMAGE", "palworld-save-editor:v0.17.4"),

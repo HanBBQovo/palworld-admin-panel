@@ -77,6 +77,7 @@ services:
       PALWORLD_REST_URL: http://127.0.0.1:8212
       PALWORLD_WORLD_INDEX_URL: http://127.0.0.1:16826
       PALWORLD_WORLD_SNAPSHOT_DIR: /advanced/world-snapshot
+      PALWORLD_WORLD_INDEX_REFRESH_SECONDS: ${PALWORLD_WORLD_INDEX_REFRESH_SECONDS:-60}
       PALWORLD_SAVE_EDITOR_DIR: /advanced/editor
       PALWORLD_SAVE_EDITOR_IMAGE: palworld-save-editor:v0.17.4
       PALWORLD_SAVE_EDITOR_WORKSPACE: /advanced/editor-workspace

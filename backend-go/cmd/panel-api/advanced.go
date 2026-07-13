@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -161,16 +162,13 @@ type WorldSnapshot struct {
 	SourceDir   string `json:"sourceDir"`
 }
 
-type EditorPreview struct {
-	ID             string         `json:"id"`
-	Action         string         `json:"action"`
-	TargetPlayer   string         `json:"targetPlayer,omitempty"`
-	Changes        map[string]any `json:"changes"`
-	Risk           string         `json:"risk"`
-	RequiresStop   bool           `json:"requiresStop"`
-	CanApplyNow    bool           `json:"canApplyNow"`
-	BlockedReasons []string       `json:"blockedReasons"`
-	CreatedAt      string         `json:"createdAt"`
+type WorldStatus struct {
+	Snapshot           WorldSnapshot `json:"snapshot"`
+	IndexReachable     bool          `json:"indexReachable"`
+	EditorInstalled    bool          `json:"editorInstalled"`
+	LatestBackupID     string        `json:"latestBackupId"`
+	UpToDate           bool          `json:"upToDate"`
+	AutoRefreshSeconds int           `json:"autoRefreshSeconds"`
 }
 
 func (a *App) registerAdvancedRoutes(mux *http.ServeMux) {
@@ -184,7 +182,6 @@ func (a *App) registerAdvancedRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/palworld/world/guilds", a.authed("GET", a.handleWorldGuilds))
 	mux.HandleFunc("/api/palworld/world/refresh", a.authed("POST", a.handleWorldRefresh))
 	mux.HandleFunc("/api/palworld/editor/status", a.authed("GET", a.handleEditorStatus))
-	mux.HandleFunc("/api/palworld/editor/previews", a.authed("POST", a.handleEditorPreview))
 	mux.HandleFunc("/api/palworld/editor/session", a.authed("POST", a.handleEditorSession))
 	mux.HandleFunc("/editor/", a.handleEditorProxy)
 }
@@ -456,12 +453,16 @@ func (a *App) worldEnvelope(data any) DataEnvelope {
 }
 
 func (a *App) handleWorldStatus(w http.ResponseWriter, _ *http.Request) {
-	var snapshot WorldSnapshot
-	raw, err := os.ReadFile(a.worldSnapshotFile())
-	if err == nil {
-		err = json.Unmarshal(raw, &snapshot)
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"snapshot": snapshot, "indexReachable": a.worldIndexReachable(), "editorInstalled": a.editorInstalled()})
+	snapshot, _ := a.readWorldSnapshot()
+	latestBackupID, _ := a.latestStableBackupID()
+	writeJSON(w, http.StatusOK, WorldStatus{
+		Snapshot:           snapshot,
+		IndexReachable:     a.worldIndexReachable(),
+		EditorInstalled:    a.editorInstalled(),
+		LatestBackupID:     latestBackupID,
+		UpToDate:           latestBackupID != "" && snapshot.BackupID == latestBackupID && a.worldSnapshotAvailable(),
+		AutoRefreshSeconds: int(a.cfg.WorldRefresh / time.Second),
+	})
 }
 
 func (a *App) handleWorldPlayers(w http.ResponseWriter, _ *http.Request) {
@@ -560,6 +561,78 @@ func (a *App) refreshWorldSnapshot() (WorldSnapshot, error) {
 	snapshot := WorldSnapshot{ID: randomID(), BackupID: filepath.Base(backupPath), CreatedAt: formatTime(info.ModTime()), RefreshedAt: formatTime(time.Now()), SourceDir: a.cfg.WorldSnapshot}
 	raw, _ := json.MarshalIndent(snapshot, "", "  ")
 	if err := os.WriteFile(a.worldSnapshotFile(), append(raw, '\n'), 0o600); err != nil {
+		return WorldSnapshot{}, err
+	}
+	return snapshot, nil
+}
+
+func (a *App) startWorldSnapshotWatcher() {
+	if a.cfg.WorldRefresh <= 0 {
+		return
+	}
+	go func() {
+		a.refreshWorldSnapshotInBackground()
+		ticker := time.NewTicker(a.cfg.WorldRefresh)
+		defer ticker.Stop()
+		for range ticker.C {
+			a.refreshWorldSnapshotInBackground()
+		}
+	}()
+}
+
+func (a *App) refreshWorldSnapshotInBackground() {
+	if !a.snapshotMu.TryLock() {
+		return
+	}
+	defer a.snapshotMu.Unlock()
+
+	needsRefresh, latestBackupID, err := a.worldSnapshotNeedsRefresh()
+	if err != nil {
+		log.Printf("world snapshot watcher: %v", err)
+		return
+	}
+	if !needsRefresh {
+		return
+	}
+	snapshot, err := a.refreshWorldSnapshot()
+	if err != nil {
+		log.Printf("world snapshot watcher refresh %s: %v", latestBackupID, err)
+		return
+	}
+	if err := a.worldIndexRequest(http.MethodPost, "/api/sync?from=sav", nil, nil); err != nil {
+		log.Printf("world snapshot watcher index %s: %v", snapshot.BackupID, err)
+		return
+	}
+	log.Printf("world snapshot watcher indexed %s", snapshot.BackupID)
+}
+
+func (a *App) worldSnapshotNeedsRefresh() (bool, string, error) {
+	latestBackupID, err := a.latestStableBackupID()
+	if err != nil {
+		return false, "", err
+	}
+	snapshot, err := a.readWorldSnapshot()
+	if err != nil {
+		return true, latestBackupID, nil
+	}
+	return snapshot.BackupID != latestBackupID || !a.worldSnapshotAvailable(), latestBackupID, nil
+}
+
+func (a *App) latestStableBackupID() (string, error) {
+	path, _, err := latestStableCompressedBackup(a.cfg.BackupsDir, time.Now(), 30*time.Second)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Base(path), nil
+}
+
+func (a *App) readWorldSnapshot() (WorldSnapshot, error) {
+	raw, err := os.ReadFile(a.worldSnapshotFile())
+	if err != nil {
+		return WorldSnapshot{}, err
+	}
+	var snapshot WorldSnapshot
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
 		return WorldSnapshot{}, err
 	}
 	return snapshot, nil
@@ -789,7 +862,7 @@ func (a *App) prepareEditorWorkspace() error {
 func (a *App) handleEditorProxy(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("palworld_editor_session")
 	if err != nil {
-		writeError(w, APIError{Status: http.StatusUnauthorized, Message: "请从高级控制台打开维护编辑器"})
+		writeError(w, APIError{Status: http.StatusUnauthorized, Message: "请从存档编辑页面打开维护编辑器"})
 		return
 	}
 	username, ok := a.verifyToken(cookie.Value)
@@ -843,47 +916,6 @@ func (a *App) editorReachable() bool {
 	return resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusInternalServerError
 }
 
-func (a *App) handleEditorPreview(w http.ResponseWriter, r *http.Request) {
-	var request struct {
-		Action       string         `json:"action"`
-		TargetPlayer string         `json:"targetPlayer"`
-		Changes      map[string]any `json:"changes"`
-	}
-	if err := readJSON(r, &request); err != nil {
-		writeError(w, APIError{Status: http.StatusBadRequest, Message: "编辑预览参数无效"})
-		return
-	}
-	allowed := map[string]bool{"player.stats": true, "player.inventory": true, "player.map": true, "pal.edit": true, "guild.edit": true, "player.transfer": true, "save.repair": true}
-	if !allowed[request.Action] || len(request.Changes) == 0 {
-		writeError(w, APIError{Status: http.StatusBadRequest, Message: "不支持的编辑动作或变更为空"})
-		return
-	}
-	capabilities := a.advancedCapabilities()
-	reasons := []string{}
-	if capabilities.Safety.GameRunning {
-		reasons = append(reasons, "游戏服务器仍在运行")
-	}
-	if !capabilities.Safety.SnapshotAvailable {
-		reasons = append(reasons, "尚未准备静态世界快照")
-	}
-	if !a.cfg.EditorApply {
-		reasons = append(reasons, "生产写回开关保持关闭")
-	}
-	preview := EditorPreview{ID: randomID(), Action: request.Action, TargetPlayer: request.TargetPlayer, Changes: request.Changes, Risk: "high", RequiresStop: true, CanApplyNow: len(reasons) == 0, BlockedReasons: reasons, CreatedAt: formatTime(time.Now())}
-	dir := filepath.Join(a.cfg.StateDir, "editor-previews")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		writeError(w, err)
-		return
-	}
-	raw, _ := json.MarshalIndent(preview, "", "  ")
-	if err := os.WriteFile(filepath.Join(dir, preview.ID+".json"), append(raw, '\n'), 0o600); err != nil {
-		writeError(w, err)
-		return
-	}
-	a.audit("warn", "server", "已创建维护编辑预览 "+preview.Action, "admin", map[string]any{"previewId": preview.ID, "targetPlayer": preview.TargetPlayer})
-	writeJSON(w, http.StatusCreated, preview)
-}
-
 func (a *App) worldSnapshotFile() string {
 	return filepath.Join(a.cfg.StateDir, "world-index-snapshot.json")
 }
@@ -893,12 +925,8 @@ func (a *App) worldSnapshotAvailable() bool {
 }
 
 func (a *App) snapshotID() string {
-	raw, err := os.ReadFile(a.worldSnapshotFile())
+	snapshot, err := a.readWorldSnapshot()
 	if err != nil {
-		return ""
-	}
-	var snapshot WorldSnapshot
-	if json.Unmarshal(raw, &snapshot) != nil {
 		return ""
 	}
 	return snapshot.ID
