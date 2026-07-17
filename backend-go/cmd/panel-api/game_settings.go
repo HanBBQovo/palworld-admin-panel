@@ -132,13 +132,10 @@ func completeGameParameters(values, fallback map[string]string) map[string]strin
 }
 
 func normalizeGameParameters(values map[string]string) (map[string]string, error) {
-	result := make(map[string]string, len(gameParameterDefaults))
-	for key := range values {
-		if _, ok := gameParameterDefaults[key]; !ok {
-			return nil, fmt.Errorf("不支持的游戏参数：%s", key)
-		}
+	if err := validateGameParameterKeys(values); err != nil {
+		return nil, err
 	}
-
+	result := make(map[string]string, len(gameParameterDefaults))
 	for key, defaultValue := range gameParameterDefaults {
 		value := strings.TrimSpace(values[key])
 		if strings.ContainsAny(value, "\r\n") || len(value) > 2048 {
@@ -166,6 +163,15 @@ func normalizeGameParameters(values map[string]string) (map[string]string, error
 		result[key] = value
 	}
 	return result, nil
+}
+
+func validateGameParameterKeys(values map[string]string) error {
+	for key := range values {
+		if _, ok := gameParameterDefaults[key]; !ok {
+			return fmt.Errorf("不支持的游戏参数：%s", key)
+		}
+	}
+	return nil
 }
 
 func isBooleanGameParameter(defaultValue string) bool {

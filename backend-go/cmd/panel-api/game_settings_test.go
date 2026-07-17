@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -198,5 +202,28 @@ func TestGameParameterEnvRoundTrip(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("unexpected env permissions: %o", info.Mode().Perm())
+	}
+}
+
+func TestSaveSettingsHandlerRejectsUnknownGameParameter(t *testing.T) {
+	tempDir := t.TempDir()
+	app := &App{cfg: Config{
+		SettingsFile: filepath.Join(tempDir, "settings.json"),
+		EnvFile:      filepath.Join(tempDir, ".env"),
+		WriteEnv:     false,
+	}}
+	settings := envSettings()
+	settings.Players = 32
+	settings.GameParameters["UNKNOWN_SETTING"] = "1"
+	body, err := json.Marshal(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/palworld/settings", bytes.NewReader(body))
+	app.handleSaveSettings(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", recorder.Code, recorder.Body.String())
 	}
 }

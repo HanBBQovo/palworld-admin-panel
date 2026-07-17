@@ -197,6 +197,10 @@ func (a *App) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, APIError{Status: http.StatusBadRequest, Message: "最大玩家数必须大于 0"})
 		return
 	}
+	if err := validateGameParameterKeys(next.GameParameters); err != nil {
+		writeError(w, APIError{Status: http.StatusBadRequest, Message: err.Error()})
+		return
+	}
 	next.GameParameters = completeGameParameters(next.GameParameters, a.readSettings().GameParameters)
 	normalized, err := normalizeGameParameters(next.GameParameters)
 	if err != nil {
