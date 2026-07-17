@@ -40,7 +40,7 @@ npm start        # 本地启动 Go API，同时提供 /api 和 dist 静态文件
 - `GET/POST /api/palworld/backups`：读取备份列表、创建手动备份。
 - `POST /api/palworld/backups/:id/restore`：恢复目录备份。
 - `POST /api/palworld/maintenance`：保存世界、重启容器、更新、延迟关服。
-- `GET/PUT /api/palworld/settings`：读取和保存参数；保存时会更新 `PANEL_ENV_FILE` 指向的 `.env`。
+- `GET/PUT /api/palworld/settings`：读取和保存参数；保存时会更新 `PANEL_ENV_FILE` 指向的 `.env`。游戏参数集对齐 `palworld-server-docker 2.6.0` 的 118 项生成模板，其中 116 项可编辑，RCON/REST 内部端口由部署层固定。
 
 高级控制台通过同一个 Go API 接入三层能力：
 
@@ -53,7 +53,7 @@ npm start        # 本地启动 Go API，同时提供 /api 和 dist 静态文件
 
 面板通过宿主 Docker socket 启动高级服务时，`PALWORLD_HOST_STACK_DIR` 必须是 Compose 目录在宿主机上的绝对路径；直接在宿主机运行示例 Compose 时可保持为 `.`。
 
-RCON 默认只允许这些前缀：`Info`、`ShowPlayers`、`Save`、`Broadcast`、`KickPlayer`、`BanPlayer`、`Shutdown`。需要开放任意 RCON 时设置 `PANEL_ALLOW_RAW_RCON=true`。RCON 超时时间默认由 `PANEL_RCON_TIMEOUT_MS=1800` 控制。
+RCON 默认只允许这些前缀：`Info`、`ShowPlayers`、`Save`、`KickPlayer`、`BanPlayer`、`Shutdown`。中文广播使用官方 REST 公告接口，不经过 RCON。需要开放任意 RCON 时设置 `PANEL_ALLOW_RAW_RCON=true`。RCON 超时时间默认由 `PANEL_RCON_TIMEOUT_MS=1800` 控制。
 
 CPU 显示使用主机口径：Docker `stats` 的容器 CPU 百分比会除以宿主机核心数，避免把多核累计值误读成整机 CPU。
 

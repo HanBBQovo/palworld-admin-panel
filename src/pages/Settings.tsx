@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Save, ShieldAlert } from 'lucide-react'
 
-import { getSettings, saveSettings, type ServerSettings } from '@/api/palworld'
+import { DEFAULT_GAME_PARAMETERS, getSettings, saveSettings, type ServerSettings } from '@/api/palworld'
 import { FormField, FormSection } from '@/components/layout/FormScaffold'
 import { PageSurface } from '@/components/layout/PageScaffold'
 import { TabbedSettingsPage } from '@/components/layout/TabbedSettingsPage'
+import { GameParameterFields } from '@/components/palworld/GameParameterFields'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -50,7 +51,15 @@ export default function Settings() {
   const resource = useResource(getSettings, [])
 
   useEffect(() => {
-    if (resource.data) setSettings(resource.data)
+    if (resource.data) {
+      setSettings({
+        ...resource.data,
+        gameParameters: {
+          ...DEFAULT_GAME_PARAMETERS,
+          ...(resource.data.gameParameters ?? {}),
+        },
+      })
+    }
   }, [resource.data])
 
   const update = <K extends keyof ServerSettings>(key: K, value: ServerSettings[K]) => {
@@ -166,30 +175,39 @@ export default function Settings() {
       ) : null}
 
       {activeTab === 'gameplay' ? (
-        <PageSurface title="游戏倍率" description="常用平衡参数，后端应写入 compose environment。">
-          <FormSection className="sm:max-w-3xl">
-            <div className="grid gap-5 sm:grid-cols-3">
-              <NumberField label="经验倍率" value={settings.expRate} onChange={(value) => update('expRate', value)} />
-              <NumberField label="捕获倍率" value={settings.captureRate} onChange={(value) => update('captureRate', value)} />
-              <NumberField label="刷新倍率" value={settings.spawnRate} onChange={(value) => update('spawnRate', value)} />
-              <NumberField label="采集掉落" value={settings.collectionDropRate} onChange={(value) => update('collectionDropRate', value)} />
-              <NumberField label="敌人掉落" value={settings.enemyDropRate} onChange={(value) => update('enemyDropRate', value)} />
-              <NumberField label="孵蛋小时" value={settings.eggHatchingHours} onChange={(value) => update('eggHatchingHours', value)} />
-              <NumberField label="自动保存秒" value={settings.autoSaveSpan} onChange={(value) => update('autoSaveSpan', value)} />
-              <NumberField label="据点工作上限" value={settings.baseCampWorkerMax} onChange={(value) => update('baseCampWorkerMax', value)} />
-              <NumberField label="公会人数上限" value={settings.guildPlayerMax} onChange={(value) => update('guildPlayerMax', value)} />
-            </div>
-            <FormField label="死亡惩罚">
-              <Combobox
-                options={DEATH_PENALTY_OPTIONS}
-                value={settings.deathPenalty}
-                onValueChange={(value) => update('deathPenalty', value as ServerSettings['deathPenalty'])}
-                searchPlaceholder="搜索死亡惩罚..."
-              />
-            </FormField>
-            <NumberField label="公会据点数量" value={settings.baseCampMaxInGuild} onChange={(value) => update('baseCampMaxInGuild', value)} />
-          </FormSection>
-        </PageSurface>
+        <>
+          <PageSurface title="常用游戏参数" description="常用倍率和服务器上限，保存后随下次 Palworld 重启生效。">
+            <FormSection className="sm:max-w-3xl">
+              <div className="grid gap-5 sm:grid-cols-3">
+                <NumberField label="经验倍率" value={settings.expRate} onChange={(value) => update('expRate', value)} />
+                <NumberField label="捕获倍率" value={settings.captureRate} onChange={(value) => update('captureRate', value)} />
+                <NumberField label="刷新倍率" value={settings.spawnRate} onChange={(value) => update('spawnRate', value)} />
+                <NumberField label="采集掉落" value={settings.collectionDropRate} onChange={(value) => update('collectionDropRate', value)} />
+                <NumberField label="敌人掉落" value={settings.enemyDropRate} onChange={(value) => update('enemyDropRate', value)} />
+                <NumberField label="孵蛋小时" value={settings.eggHatchingHours} onChange={(value) => update('eggHatchingHours', value)} />
+                <NumberField label="自动保存秒" value={settings.autoSaveSpan} onChange={(value) => update('autoSaveSpan', value)} />
+                <NumberField label="据点工作上限" value={settings.baseCampWorkerMax} onChange={(value) => update('baseCampWorkerMax', value)} />
+                <NumberField label="公会人数上限" value={settings.guildPlayerMax} onChange={(value) => update('guildPlayerMax', value)} />
+              </div>
+              <FormField label="死亡惩罚">
+                <Combobox
+                  options={DEATH_PENALTY_OPTIONS}
+                  value={settings.deathPenalty}
+                  onValueChange={(value) => update('deathPenalty', value as ServerSettings['deathPenalty'])}
+                  searchPlaceholder="搜索死亡惩罚..."
+                />
+              </FormField>
+              <NumberField label="公会据点数量" value={settings.baseCampMaxInGuild} onChange={(value) => update('baseCampMaxInGuild', value)} />
+            </FormSection>
+          </PageSurface>
+
+          <PageSurface title="完整游戏参数" description="按用途编辑 Palworld 1.0 / palworld-server-docker 2.6.0 支持的其余规则。">
+            <GameParameterFields
+              value={settings.gameParameters}
+              onChange={(gameParameters) => update('gameParameters', gameParameters)}
+            />
+          </PageSurface>
+        </>
       ) : null}
 
       {activeTab === 'automation' ? (

@@ -197,6 +197,13 @@ func (a *App) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, APIError{Status: http.StatusBadRequest, Message: "最大玩家数必须大于 0"})
 		return
 	}
+	next.GameParameters = completeGameParameters(next.GameParameters, a.readSettings().GameParameters)
+	normalized, err := normalizeGameParameters(next.GameParameters)
+	if err != nil {
+		writeError(w, APIError{Status: http.StatusBadRequest, Message: err.Error()})
+		return
+	}
+	next.GameParameters = normalized
 	if err := a.saveSettings(next, "admin"); err != nil {
 		writeError(w, err)
 		return
@@ -265,10 +272,13 @@ func (a *App) handleMaintenance(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) readSettings() ServerSettings {
 	settings := envSettings()
+	fileParameters := gameParametersFromEnvironment(readEnvFile(a.cfg.EnvFile))
+	settings.GameParameters = fileParameters
 	raw, err := os.ReadFile(a.cfg.SettingsFile)
 	if err == nil && len(bytes.TrimSpace(raw)) > 0 {
 		_ = json.Unmarshal(raw, &settings)
 	}
+	settings.GameParameters = completeGameParameters(settings.GameParameters, fileParameters)
 	return settings
 }
 
@@ -297,6 +307,7 @@ func envSettings() ServerSettings {
 		GuildPlayerMax:        getenvIntAny(20, "PALWORLD_GUILD_PLAYER_MAX", "GUILD_PLAYER_MAX_NUM", "GUILD_PLAYER_MAX"),
 		BaseCampMaxInGuild:    getenvIntAny(4, "PALWORLD_BASE_CAMP_MAX_IN_GUILD", "BASE_CAMP_MAX_NUM_IN_GUILD", "BASE_CAMP_MAX_IN_GUILD"),
 		CrossplayPlatforms:    splitList(getenvAny("Steam,Xbox,PS5,Mac", "PALWORLD_CROSSPLAY_PLATFORMS", "CROSSPLAY_PLATFORMS")),
+		GameParameters:        gameParametersFromEnvironment(nil),
 		AutoPauseEnabled:      parseBool(getenvAny("", "PALWORLD_AUTO_PAUSE_ENABLED", "AUTO_PAUSE_ENABLED"), false),
 		PlayerLoggingEnabled:  parseBool(getenvAny("", "PALWORLD_PLAYER_LOGGING_ENABLED", "ENABLE_PLAYER_LOGGING"), true),
 		DiscordWebhookEnabled: parseBool(getenvAny("", "PALWORLD_DISCORD_WEBHOOK_ENABLED", "DISCORD_WEBHOOK_ENABLED"), false),
@@ -339,10 +350,11 @@ func settingsToEnv(settings ServerSettings) map[string]string {
 	baseCampMaxInGuild := strconv.Itoa(settings.BaseCampMaxInGuild)
 	crossplayPlatforms := formatCrossplayPlatforms(settings.CrossplayPlatforms)
 
-	return map[string]string{
+	updates := map[string]string{
 		"SERVER_NAME": settings.ServerName, "SERVER_DESCRIPTION": settings.Description, "PLAYERS": players, "SERVER_PLAYER_MAX_NUM": players,
 		"SERVER_PASSWORD": settings.ServerPassword, "ADMIN_PASSWORD": settings.AdminPassword, "COMMUNITY": formatBool(settings.Community),
 		"RCON_ENABLED": formatBool(settings.RconEnabled), "REST_API_ENABLED": formatBool(settings.RestAPIEnabled),
+		"PUBLIC_IP": settings.PublicIP, "PUBLIC_PORT": settings.PublicPort,
 		"EXP_RATE": expRate, "PAL_CAPTURE_RATE": captureRate, "PAL_SPAWN_NUM_RATE": spawnRate,
 		"COLLECTION_DROP_RATE": collectionDropRate, "ENEMY_DROP_ITEM_RATE": enemyDropRate,
 		"PAL_EGG_DEFAULT_HATCHING_TIME": eggHatchingHours, "AUTO_SAVE_SPAN": autoSaveSpan,
@@ -364,6 +376,12 @@ func settingsToEnv(settings ServerSettings) map[string]string {
 		"PALWORLD_PLAYER_LOGGING_ENABLED": formatBool(settings.PlayerLoggingEnabled), "PALWORLD_DISCORD_WEBHOOK_ENABLED": formatBool(settings.DiscordWebhookEnabled),
 		"PALWORLD_TARGET_MANIFEST_ID": settings.TargetManifestID,
 	}
+	for key, value := range settings.GameParameters {
+		if _, supported := gameParameterDefaults[key]; supported {
+			updates[key] = value
+		}
+	}
+	return updates
 }
 
 func formatCrossplayPlatforms(platforms []string) string {
