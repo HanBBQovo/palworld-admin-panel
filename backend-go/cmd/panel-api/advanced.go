@@ -857,7 +857,7 @@ func (a *App) stopEditorSession() error {
 
 func (a *App) runAdvancedCompose(ctx context.Context, args ...string) ([]byte, error) {
 	base := []string{"compose", "--env-file", a.cfg.EnvFile, "-p", "palworld-advanced", "-f", a.cfg.AdvancedCompose}
-	return runCmd(ctx, a.cfg.ComposeDir, "docker", append(base, args...)...)
+	return runCmdWithEnv(ctx, a.cfg.ComposeDir, composeProcessEnvironment(a.cfg.EnvFile), "docker", append(base, args...)...)
 }
 
 func (a *App) prepareEditorWorkspace() error {

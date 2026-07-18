@@ -96,9 +96,16 @@ func writeError(w http.ResponseWriter, err error) {
 }
 
 func runCmd(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+	return runCmdWithEnv(ctx, dir, nil, name, args...)
+}
+
+func runCmdWithEnv(ctx context.Context, dir string, environment []string, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	if dir != "" {
 		cmd.Dir = dir
+	}
+	if environment != nil {
+		cmd.Env = environment
 	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -111,6 +118,24 @@ func runCmd(ctx context.Context, dir, name string, args ...string) ([]byte, erro
 		return output, err
 	}
 	return output, nil
+}
+
+func composeProcessEnvironment(envFile string) []string {
+	return environmentWithoutKeys(os.Environ(), readEnvFile(envFile))
+}
+
+func environmentWithoutKeys(environment []string, excluded map[string]string) []string {
+	filtered := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok {
+			if _, found := excluded[key]; found {
+				continue
+			}
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
 }
 
 type diskInfo struct{ UsedGB, TotalGB float64 }

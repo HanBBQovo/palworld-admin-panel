@@ -220,8 +220,8 @@ func (a *App) maintenance(action, actor string) (map[string]any, error) {
 }
 
 func (a *App) runCompose(ctx context.Context, args ...string) ([]byte, error) {
-	base := []string{"compose", "-p", a.cfg.ComposeProject}
-	return runCmd(ctx, a.cfg.ComposeDir, "docker", append(base, args...)...)
+	base := []string{"compose", "--env-file", a.cfg.EnvFile, "-p", a.cfg.ComposeProject}
+	return runCmdWithEnv(ctx, a.cfg.ComposeDir, composeProcessEnvironment(a.cfg.EnvFile), "docker", append(base, args...)...)
 }
 
 func copyDir(src, dst string) error {
