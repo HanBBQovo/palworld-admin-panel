@@ -73,7 +73,7 @@ export default function Settings() {
     try {
       const next = await saveSettings(settings)
       setSettings(next)
-      setMessage({ type: 'success', text: '配置已经写入服务器；密码和游戏参数需要重启 Palworld 后生效。' })
+      setMessage({ type: 'success', text: '配置已保存但尚未应用；维护页会列出待应用参数，重建 Palworld 容器后才会生效。' })
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : '保存失败' })
     } finally {
@@ -122,9 +122,9 @@ export default function Settings() {
           ) : null}
           <Alert>
             <ShieldAlert />
-            <AlertTitle>保存与生效是两个步骤</AlertTitle>
+            <AlertTitle>保存不会自动应用</AlertTitle>
             <AlertDescription>
-              点击保存会立即写入服务器配置文件；服务器密码、管理员密码和游戏参数需要在“维护任务”中重启 Palworld 后生效。
+              点击保存只会更新配置文件；请在“维护任务”确认待应用参数，并在合适的维护窗口重建 Palworld 容器。
             </AlertDescription>
           </Alert>
         </div>

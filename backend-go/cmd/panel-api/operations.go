@@ -177,13 +177,22 @@ func (a *App) maintenance(action, actor string) (map[string]any, error) {
 		a.audit("warn", "rcon", "已提交延迟关服命令", actor, nil)
 		return success(result.Output)
 	case action == "server:restart":
+		saveWarning := ""
+		if _, err := a.executeRcon("Save", a.cfg.RconTimeout); err != nil {
+			saveWarning = "；重建前 RCON Save 未确认成功"
+			a.audit("warn", "rcon", "应用配置前 Save 失败，继续重建容器: "+err.Error(), actor, nil)
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 		defer cancel()
 		if _, err := a.runCompose(ctx, "up", "-d", "--force-recreate", "palworld"); err != nil {
 			return fail(err)
 		}
+		appliedCount, err := a.verifyContainerSettingsApplied(ctx)
+		if err != nil {
+			return fail(err)
+		}
 		a.audit("warn", "server", "已按当前 .env 重建容器 "+a.cfg.Container, actor, nil)
-		return success("游戏容器已按最新配置重建，Palworld 正在启动")
+		return success(fmt.Sprintf("游戏容器已加载 %d 项配置并开始启动%s", appliedCount, saveWarning))
 	case action == "server:update":
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 		defer cancel()
@@ -193,8 +202,12 @@ func (a *App) maintenance(action, actor string) (map[string]any, error) {
 		if _, err := a.runCompose(ctx, "up", "-d", "--force-recreate", "palworld"); err != nil {
 			return fail(err)
 		}
+		appliedCount, err := a.verifyContainerSettingsApplied(ctx)
+		if err != nil {
+			return fail(err)
+		}
 		a.audit("warn", "update", "已执行服务端更新流程，Compose 项目: "+a.cfg.ComposeProject, actor, nil)
-		return success("更新容器已重建，Palworld 正在完成启动与健康检查")
+		return success(fmt.Sprintf("更新容器已重建并加载 %d 项配置，Palworld 正在完成启动", appliedCount))
 	case action == "backup:create":
 		a.finishOperation(op, "delegated", "转入备份创建流程")
 		return a.createBackup(actor)

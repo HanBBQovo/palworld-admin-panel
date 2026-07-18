@@ -71,9 +71,16 @@ export default function Maintenance() {
   }
 
   const execute = async (action: ActionItem) => {
+    const appliesConfig = action.key === 'server:restart' || action.key === 'server:update'
+    const pendingNote = appliesConfig && data?.configPendingRestart
+      ? ` 当前有 ${data.configPendingKeys.length} 项配置待应用。`
+      : ''
+    const onlineNote = action.risk !== 'low' && (data?.playersOnline ?? 0) > 0
+      ? ` 当前有 ${data?.playersOnline ?? 0} 名玩家在线。`
+      : ''
     const ok = await confirm({
       title: action.title,
-      description: `${action.description} 确认继续？`,
+      description: `${action.description}${pendingNote}${onlineNote} 确认继续？`,
       confirmText: action.title,
       variant: action.risk === 'high' ? 'destructive' : 'default',
     })
@@ -111,7 +118,36 @@ export default function Maintenance() {
           </AlertDescription>
         </Alert>
 
+        {!data ? (
+          <Alert>
+            <RefreshCw className="h-4 w-4" />
+            <AlertTitle>正在核对配置状态</AlertTitle>
+            <AlertDescription>正在比较最新保存配置与当前游戏容器环境。</AlertDescription>
+          </Alert>
+        ) : data.configPendingRestart ? (
+          <Alert>
+            <RotateCcw className="h-4 w-4" />
+            <AlertTitle>{data.configPendingKeys.length} 项配置等待应用</AlertTitle>
+            <AlertDescription>
+              最新保存于 {data.configSavedAt}，当前游戏容器加载于 {data.configLoadedAt}。
+              待应用参数：{data.configPendingKeys.slice(0, 8).join('、')}
+              {data.configPendingKeys.length > 8 ? ` 等 ${data.configPendingKeys.length} 项` : ''}。
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <Alert>
+            <Save className="h-4 w-4" />
+            <AlertTitle>配置已由当前容器加载</AlertTitle>
+            <AlertDescription>当前没有已保存但尚未加载的服务器参数。</AlertDescription>
+          </Alert>
+        )}
+
         <PageStatStrip>
+          <PageStat
+            label="配置状态"
+            value={!data ? '读取中' : data.configPendingRestart ? `${data.configPendingKeys.length} 项待应用` : '已应用'}
+            note={!data ? '正在比较容器环境' : data.configPendingRestart ? `保存于 ${data.configSavedAt}` : `加载于 ${data.configLoadedAt}`}
+          />
           <PageStat label="启动更新" value={data?.maintenance.updateOnBoot ? '开启' : '关闭'} note="UPDATE_ON_BOOT" />
           <PageStat label="自动更新" value={data?.maintenance.autoUpdate ? data.maintenance.autoUpdateCron : '关闭'} note="AUTO_UPDATE_CRON_EXPRESSION" />
           <PageStat label="自动重启" value={data?.maintenance.autoReboot ? data.maintenance.autoRebootCron : '关闭'} note="AUTO_REBOOT_CRON_EXPRESSION" />

@@ -30,6 +30,10 @@ export interface ServerStatus {
   lastSaveAt: string
   nextBackupAt: string
   nextRestartAt: string
+  configSavedAt: string
+  configLoadedAt: string
+  configPendingRestart: boolean
+  configPendingKeys: string[]
   ports: PortBinding[]
   maintenance: MaintenancePolicy
 }
@@ -430,6 +434,10 @@ const status: ServerStatus = {
   lastSaveAt: '2026-07-09 09:05:50',
   nextBackupAt: '10:00',
   nextRestartAt: '明天 05:00',
+  configSavedAt: '2026-07-09 09:08:10',
+  configLoadedAt: '2026-07-09 09:03:31',
+  configPendingRestart: true,
+  configPendingKeys: ['EXP_RATE', 'COLLECTION_DROP_RATE'],
   ports: [
     { port: 8211, protocol: 'UDP', exposure: 'public', purpose: '游戏连接端口', safe: true },
     { port: 27015, protocol: 'UDP', exposure: 'public', purpose: 'Steam 查询端口', safe: true },

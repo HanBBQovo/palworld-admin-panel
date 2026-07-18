@@ -45,6 +45,7 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		memLimit = round1(float64(totalMemoryBytes()) / 1024 / 1024 / 1024)
 	}
 	maintenance := a.maintenancePolicy()
+	pendingConfigKeys := pendingContainerSettingKeys(settings, inspect)
 	writeJSON(w, http.StatusOK, ServerStatus{
 		Name: settings.ServerName, Host: a.displayHost(), Address: a.publicAddress(settings),
 		Version: version.GameVersion, GameVersion: version.GameVersion, SteamBuildID: version.SteamBuildID,
@@ -55,6 +56,8 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		WorldSizeGB: worldSize, LastSaveAt: lastModified(a.cfg.SavesDir),
 		NextBackupAt:  enabledSchedule(maintenance.BackupEnabled, maintenance.BackupCron),
 		NextRestartAt: enabledSchedule(maintenance.AutoReboot, maintenance.AutoRebootCron),
+		ConfigSavedAt: lastModified(a.cfg.SettingsFile), ConfigLoadedAt: formatTimeString(startedAt),
+		ConfigPendingRestart: len(pendingConfigKeys) > 0, ConfigPendingKeys: pendingConfigKeys,
 		Ports: []PortBinding{
 			{Port: getenvIntAny(8211, "PALWORLD_PORT", "PORT"), Protocol: "UDP", Exposure: "public", Purpose: "游戏连接端口", Safe: true},
 			{Port: getenvIntAny(27015, "PALWORLD_QUERY_PORT", "QUERY_PORT"), Protocol: "UDP", Exposure: "public", Purpose: "Steam 查询端口", Safe: true},
@@ -522,6 +525,7 @@ type dockerInspectResult struct {
 	} `json:"State"`
 	Config struct {
 		Image  string            `json:"Image"`
+		Env    []string          `json:"Env"`
 		Labels map[string]string `json:"Labels"`
 	} `json:"Config"`
 }
