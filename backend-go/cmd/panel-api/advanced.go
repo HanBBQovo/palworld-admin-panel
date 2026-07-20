@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -161,16 +164,39 @@ type WorldSnapshot struct {
 	CreatedAt   string `json:"createdAt"`
 	RefreshedAt string `json:"refreshedAt"`
 	SourceDir   string `json:"sourceDir"`
+	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
 type WorldStatus struct {
 	Snapshot           WorldSnapshot `json:"snapshot"`
 	IndexReachable     bool          `json:"indexReachable"`
+	IndexReady         bool          `json:"indexReady"`
+	IndexSyncing       bool          `json:"indexSyncing"`
+	IndexStale         bool          `json:"indexStale"`
+	IndexLastError     string        `json:"indexLastError,omitempty"`
+	IndexUpdatedAt     string        `json:"indexUpdatedAt,omitempty"`
+	IndexFingerprint   string        `json:"indexFingerprint,omitempty"`
+	IndexPlayers       int           `json:"indexPlayers"`
+	IndexGuilds        int           `json:"indexGuilds"`
 	EditorInstalled    bool          `json:"editorInstalled"`
 	LatestBackupID     string        `json:"latestBackupId"`
 	UpToDate           bool          `json:"upToDate"`
 	AutoRefreshSeconds int           `json:"autoRefreshSeconds"`
 }
+
+type worldIndexStatusResponse struct {
+	Ready       bool   `json:"ready"`
+	Syncing     bool   `json:"syncing"`
+	Stale       bool   `json:"stale"`
+	LastError   string `json:"last_error"`
+	UpdatedAt   string `json:"updated_at"`
+	Fingerprint string `json:"fingerprint"`
+	Source      string `json:"source"`
+	Players     int    `json:"players"`
+	Guilds      int    `json:"guilds"`
+}
+
+const worldIndexSource = "Palworld Save Pal v1.2.0"
 
 func (a *App) registerAdvancedRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/palworld/capabilities", a.authed("GET", a.handleAdvancedCapabilities))
@@ -244,7 +270,8 @@ func (a *App) advancedCapabilities() AdvancedCapabilities {
 		var info map[string]any
 		restReachable = a.palREST("GET", "/v1/api/info", nil, &info) == nil
 	}
-	indexReachable := a.worldIndexReachable()
+	indexStatus, indexErr := a.worldIndexStatus()
+	indexReachable := indexErr == nil && indexStatus.Ready
 	snapshotAvailable := a.worldSnapshotAvailable()
 	editorInstalled := a.editorInstalled()
 	editorReachable := a.editorReachable()
@@ -260,8 +287,12 @@ func (a *App) advancedCapabilities() AdvancedCapabilities {
 		restState, restMessage = "degraded", "游戏已启用 REST，但接口当前不可达"
 	}
 	indexState, indexMessage := "not-installed", "只读世界索引侧车尚未运行"
-	if snapshotAvailable && !indexReachable {
+	if snapshotAvailable && indexErr != nil {
 		indexState, indexMessage = "snapshot-ready", "静态世界快照已准备，等待索引侧车"
+	} else if indexStatus.Syncing {
+		indexState, indexMessage = "syncing", "正在解析最新世界快照"
+	} else if indexReachable && indexStatus.Stale {
+		indexState, indexMessage = "degraded", "索引解析失败，页面数据保留上次成功结果："+indexStatus.LastError
 	} else if indexReachable {
 		indexState, indexMessage = "ready", "玩家、帕鲁、背包、公会和基地索引可用"
 	}
@@ -275,7 +306,7 @@ func (a *App) advancedCapabilities() AdvancedCapabilities {
 	return AdvancedCapabilities{
 		Layers: []AdvancedLayer{
 			{ID: "realtime", Label: "官方实时接口", State: restState, Installed: desiredREST || runningREST, Reachable: restReachable, ReadOnly: false, RequiresRestart: desiredREST && !runningREST, Source: "Palworld REST API", Message: restMessage},
-			{ID: "world-index", Label: "世界存档索引", State: indexState, Installed: snapshotAvailable || indexReachable, Reachable: indexReachable, ReadOnly: true, Source: "Palworld Save Pal v0.17.4", Message: indexMessage},
+			{ID: "world-index", Label: "世界存档索引", State: indexState, Installed: snapshotAvailable || indexReachable, Reachable: indexReachable, ReadOnly: true, Source: worldIndexSource, Message: indexMessage},
 			{ID: "save-editor", Label: "维护存档编辑器", State: editorState, Installed: editorInstalled, Reachable: editorReachable, ReadOnly: !canApply, Source: "Palworld Save Pal v0.17.4", Message: editorMessage},
 		},
 		Safety:     AdvancedSafety{GameRunning: gameRunning, PlayersOnline: len(players), SnapshotAvailable: snapshotAvailable, CanEditSnapshot: canEdit, CanApplyToWorld: canApply, ApplyEnabled: a.cfg.EditorApply},
@@ -408,12 +439,14 @@ func (a *App) handleLiveMap(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *App) worldIndexReachable() bool {
-	var status struct {
-		Ready     bool   `json:"ready"`
-		Syncing   bool   `json:"syncing"`
-		LastError string `json:"last_error"`
-	}
-	return a.worldIndexGet("/api/status", &status) == nil && status.Ready
+	status, err := a.worldIndexStatus()
+	return err == nil && status.Ready
+}
+
+func (a *App) worldIndexStatus() (worldIndexStatusResponse, error) {
+	var status worldIndexStatusResponse
+	err := a.worldIndexGet("/api/status", &status)
+	return status, err
 }
 
 func (a *App) worldIndexToken() (string, error) {
@@ -489,18 +522,40 @@ func (a *App) worldIndexGet(path string, out any) error {
 }
 
 func (a *App) worldEnvelope(data any) DataEnvelope {
-	return DataEnvelope{Meta: DataMeta{Source: "Palworld Save Pal v0.17.4 read-only index", ObservedAt: formatTime(time.Now()), SnapshotID: a.snapshotID()}, Data: data}
+	status, err := a.worldIndexStatus()
+	snapshot, _ := a.readWorldSnapshot()
+	source := worldIndexSource + " read-only index"
+	if status.Source != "" {
+		source = status.Source + " read-only index"
+	}
+	observedAt := status.UpdatedAt
+	if observedAt == "" {
+		observedAt = formatTime(time.Now())
+	}
+	stale := err != nil || status.Syncing || status.Stale || status.Fingerprint == "" || status.Fingerprint != snapshot.Fingerprint
+	return DataEnvelope{Meta: DataMeta{Source: source, ObservedAt: observedAt, Stale: stale, SnapshotID: a.snapshotID()}, Data: data}
 }
 
 func (a *App) handleWorldStatus(w http.ResponseWriter, _ *http.Request) {
 	snapshot, _ := a.readWorldSnapshot()
 	latestBackupID, _ := a.latestStableBackupID()
+	indexStatus, indexErr := a.worldIndexStatus()
+	indexReachable := indexErr == nil
+	indexCurrent := indexReachable && indexStatus.Ready && !indexStatus.Syncing && !indexStatus.Stale && snapshot.Fingerprint != "" && indexStatus.Fingerprint == snapshot.Fingerprint
 	writeJSON(w, http.StatusOK, WorldStatus{
 		Snapshot:           snapshot,
-		IndexReachable:     a.worldIndexReachable(),
+		IndexReachable:     indexReachable,
+		IndexReady:         indexStatus.Ready,
+		IndexSyncing:       indexStatus.Syncing,
+		IndexStale:         indexStatus.Stale || (indexStatus.Ready && !indexCurrent),
+		IndexLastError:     indexStatus.LastError,
+		IndexUpdatedAt:     indexStatus.UpdatedAt,
+		IndexFingerprint:   indexStatus.Fingerprint,
+		IndexPlayers:       indexStatus.Players,
+		IndexGuilds:        indexStatus.Guilds,
 		EditorInstalled:    a.editorInstalled(),
 		LatestBackupID:     latestBackupID,
-		UpToDate:           latestBackupID != "" && snapshot.BackupID == latestBackupID && a.worldSnapshotAvailable(),
+		UpToDate:           latestBackupID != "" && snapshot.BackupID == latestBackupID && a.worldSnapshotAvailable() && indexCurrent,
 		AutoRefreshSeconds: int(a.cfg.WorldRefresh / time.Second),
 	})
 }
@@ -548,15 +603,41 @@ func (a *App) handleWorldRefresh(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, err)
 		return
 	}
-	syncErr := a.worldIndexRequest(http.MethodPost, "/api/sync?from=sav", nil, nil)
-	message := "已从完成的备份准备世界快照"
-	if syncErr == nil {
-		message += "，索引任务已启动"
-	} else {
-		message += "；侧车尚未可用，快照将在侧车启动后解析"
+	if err := a.worldIndexRequest(http.MethodPost, "/api/sync?from=sav", nil, nil); err != nil {
+		writeError(w, APIError{Status: http.StatusServiceUnavailable, Message: "世界快照已更新，但索引任务启动失败: " + err.Error()})
+		return
 	}
+	indexStatus, err := a.waitForWorldIndex(snapshot.Fingerprint, 2*time.Minute)
+	if err != nil {
+		a.audit("error", "server", "世界快照解析失败: "+err.Error(), "admin", map[string]any{"snapshotId": snapshot.ID, "backupId": snapshot.BackupID})
+		writeError(w, APIError{Status: http.StatusBadGateway, Message: err.Error()})
+		return
+	}
+	message := fmt.Sprintf("已读取最新备份并完成索引：%d 名玩家，%d 个公会", indexStatus.Players, indexStatus.Guilds)
 	a.audit("info", "server", message, "admin", map[string]any{"snapshotId": snapshot.ID, "backupId": snapshot.BackupID})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": message, "snapshot": snapshot})
+}
+
+func (a *App) waitForWorldIndex(fingerprint string, timeout time.Duration) (worldIndexStatusResponse, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		status, err := a.worldIndexStatus()
+		if err != nil {
+			return status, fmt.Errorf("无法读取世界索引状态: %w", err)
+		}
+		if status.LastError != "" && !status.Syncing {
+			message := strings.TrimSpace(status.LastError)
+			if len(message) > 800 {
+				message = message[:800] + "..."
+			}
+			return status, fmt.Errorf("最新世界快照解析失败: %s", message)
+		}
+		if status.Ready && !status.Syncing && !status.Stale && status.Fingerprint == fingerprint {
+			return status, nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return worldIndexStatusResponse{}, fmt.Errorf("世界索引在 %s 内未完成", timeout.Round(time.Second))
 }
 
 func (a *App) refreshWorldSnapshot() (WorldSnapshot, error) {
@@ -598,7 +679,11 @@ func (a *App) refreshWorldSnapshot() (WorldSnapshot, error) {
 		return WorldSnapshot{}, err
 	}
 	_ = os.RemoveAll(previous)
-	snapshot := WorldSnapshot{ID: randomID(), BackupID: filepath.Base(backupPath), CreatedAt: formatTime(info.ModTime()), RefreshedAt: formatTime(time.Now()), SourceDir: a.cfg.WorldSnapshot}
+	fingerprint, err := worldSnapshotFingerprint(a.cfg.WorldSnapshot)
+	if err != nil {
+		return WorldSnapshot{}, fmt.Errorf("计算世界快照指纹失败: %w", err)
+	}
+	snapshot := WorldSnapshot{ID: randomID(), BackupID: filepath.Base(backupPath), CreatedAt: formatTime(info.ModTime()), RefreshedAt: formatTime(time.Now()), SourceDir: a.cfg.WorldSnapshot, Fingerprint: fingerprint}
 	raw, _ := json.MarshalIndent(snapshot, "", "  ")
 	if err := os.WriteFile(a.worldSnapshotFile(), append(raw, '\n'), 0o600); err != nil {
 		return WorldSnapshot{}, err
@@ -643,7 +728,12 @@ func (a *App) refreshWorldSnapshotInBackground() {
 		log.Printf("world snapshot watcher index %s: %v", snapshot.BackupID, err)
 		return
 	}
-	log.Printf("world snapshot watcher indexed %s", snapshot.BackupID)
+	status, err := a.waitForWorldIndex(snapshot.Fingerprint, 2*time.Minute)
+	if err != nil {
+		log.Printf("world snapshot watcher index %s: %v", snapshot.BackupID, err)
+		return
+	}
+	log.Printf("world snapshot watcher indexed %s: %d players, %d guilds", snapshot.BackupID, status.Players, status.Guilds)
 }
 
 func (a *App) worldSnapshotNeedsRefresh() (bool, string, error) {
@@ -655,7 +745,70 @@ func (a *App) worldSnapshotNeedsRefresh() (bool, string, error) {
 	if err != nil {
 		return true, latestBackupID, nil
 	}
-	return snapshot.BackupID != latestBackupID || !a.worldSnapshotAvailable(), latestBackupID, nil
+	if snapshot.BackupID != latestBackupID || !a.worldSnapshotAvailable() || snapshot.Fingerprint == "" {
+		return true, latestBackupID, nil
+	}
+	status, statusErr := a.worldIndexStatus()
+	if statusErr != nil || status.Syncing || status.Stale {
+		return false, latestBackupID, nil
+	}
+	return !status.Ready || status.Fingerprint != snapshot.Fingerprint, latestBackupID, nil
+}
+
+func worldSnapshotFingerprint(snapshotDir string) (string, error) {
+	paths := make([]string, 0)
+	for _, name := range []string{"Level.sav", "LevelMeta.sav", "WorldOption.sav"} {
+		path := filepath.Join(snapshotDir, name)
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+			paths = append(paths, path)
+		}
+	}
+	playersDir := filepath.Join(snapshotDir, "Players")
+	if entries, err := os.ReadDir(playersDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.EqualFold(filepath.Ext(entry.Name()), ".sav") {
+				paths = append(paths, filepath.Join(playersDir, entry.Name()))
+			}
+		}
+	}
+	sort.Slice(paths, func(i, j int) bool {
+		left, _ := filepath.Rel(snapshotDir, paths[i])
+		right, _ := filepath.Rel(snapshotDir, paths[j])
+		return filepath.ToSlash(left) < filepath.ToSlash(right)
+	})
+	if len(paths) == 0 {
+		return "", fmt.Errorf("世界快照中没有可索引的存档文件")
+	}
+
+	hash := sha256.New()
+	for _, path := range paths {
+		relative, err := filepath.Rel(snapshotDir, path)
+		if err != nil {
+			return "", err
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return "", err
+		}
+		_, _ = hash.Write([]byte(filepath.ToSlash(relative)))
+		_, _ = hash.Write([]byte{0})
+		if err := binary.Write(hash, binary.BigEndian, uint64(info.Size())); err != nil {
+			return "", err
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return "", err
+		}
+		_, copyErr := io.Copy(hash, file)
+		closeErr := file.Close()
+		if copyErr != nil {
+			return "", copyErr
+		}
+		if closeErr != nil {
+			return "", closeErr
+		}
+	}
+	return hex.EncodeToString(hash.Sum(nil))[:16], nil
 }
 
 func (a *App) latestStableBackupID() (string, error) {

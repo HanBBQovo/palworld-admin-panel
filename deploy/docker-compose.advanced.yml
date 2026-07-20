@@ -1,6 +1,6 @@
 services:
   world-index:
-    image: palworld-world-index:save-pal-v0.17.4
+    image: palworld-world-index:save-pal-v1.2.0
     container_name: palworld-world-index
     restart: unless-stopped
     ports:

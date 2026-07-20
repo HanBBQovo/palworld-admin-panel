@@ -1,0 +1,10 @@
+[package]
+name = "palworld-world-indexer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+psp-core = { git = "https://github.com/oMaN-Rod/palworld-save-pal.git", tag = "v1.2.0" }
+serde_json = "1"
+sha2 = "0.10"
+uuid = "1"

@@ -247,7 +247,7 @@ export interface RconCommandDefinition {
   category: 'info' | 'player' | 'world' | 'broadcast' | 'shutdown'
 }
 
-export type AdvancedLayerState = 'ready' | 'disabled' | 'pending-restart' | 'degraded' | 'not-installed' | 'snapshot-ready' | 'locked'
+export type AdvancedLayerState = 'ready' | 'syncing' | 'disabled' | 'pending-restart' | 'degraded' | 'not-installed' | 'snapshot-ready' | 'locked'
 
 export interface AdvancedLayer {
   id: 'realtime' | 'world-index' | 'save-editor'
@@ -381,11 +381,20 @@ export interface WorldSnapshot {
   createdAt: string
   refreshedAt: string
   sourceDir: string
+  fingerprint?: string
 }
 
 export interface WorldStatus {
   snapshot: WorldSnapshot
   indexReachable: boolean
+  indexReady: boolean
+  indexSyncing: boolean
+  indexStale: boolean
+  indexLastError?: string
+  indexUpdatedAt?: string
+  indexFingerprint?: string
+  indexPlayers: number
+  indexGuilds: number
   editorInstalled: boolean
   latestBackupId: string
   upToDate: boolean

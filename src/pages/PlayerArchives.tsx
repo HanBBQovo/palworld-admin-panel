@@ -1,4 +1,4 @@
-import { Archive, HardDriveDownload, Search, Sparkles } from 'lucide-react'
+import { HardDriveDownload, Search, Sparkles } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import {
@@ -9,9 +9,9 @@ import {
   type WorldPlayer,
 } from '@/api/palworld'
 import { WorldMap } from '@/components/palworld/WorldMap'
+import { WorldIndexAlert } from '@/components/palworld/WorldIndexAlert'
 import { InlineLoader } from '@/components/PageLoader'
 import { PageShell, PageStat, PageStatStrip, PageSurface } from '@/components/layout/PageScaffold'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -23,7 +23,7 @@ import { useGlobalToast } from '@/components/ui/use-global-toast'
 import { useResource } from '@/lib/use-resource'
 
 export default function PlayerArchives() {
-  const status = useResource(getWorldStatus, [], { refreshIntervalMs: 60_000 })
+  const status = useResource(getWorldStatus, [], { refreshIntervalMs: 5_000 })
   const players = useResource(getWorldPlayers, [], { refreshIntervalMs: 60_000 })
   const [query, setQuery] = useState('')
   const [selectedUID, setSelectedUID] = useState<string | null>(null)
@@ -44,7 +44,6 @@ export default function PlayerArchives() {
     try {
       const result = await refreshWorldSnapshot()
       showToast('success', result.message)
-      await wait(1_200)
       status.refresh()
       players.refresh()
     } catch (error) {
@@ -67,21 +66,13 @@ export default function PlayerArchives() {
       }
     >
       <div className="flex flex-col gap-5">
-        {status.data && !status.data.upToDate ? (
-          <Alert>
-            <Archive />
-            <AlertTitle>索引正在追赶最新备份</AlertTitle>
-            <AlertDescription>
-              当前索引 {status.data.snapshot.backupId || '-'}，最新备份 {status.data.latestBackupId || '-'}。
-            </AlertDescription>
-          </Alert>
-        ) : null}
+        <WorldIndexAlert status={status.data} />
 
         <PageStatStrip>
           <PageStat label="玩家" value={rows.length || '-'} note="包括离线玩家" />
           <PageStat label="帕鲁" value={palCount || '-'} note="玩家持有总数" />
           <PageStat label="索引备份" value={status.data?.snapshot.backupId || '-'} note={status.data?.snapshot.createdAt || '等待快照'} />
-          <PageStat label="自动更新" value={status.data?.autoRefreshSeconds ? `${status.data.autoRefreshSeconds} 秒` : '-'} note={status.data?.upToDate ? '已跟上最新备份' : '等待同步'} />
+          <PageStat label="索引状态" value={status.data?.indexSyncing ? '解析中' : status.data?.upToDate ? '最新' : '需刷新'} note={status.data?.indexUpdatedAt || '等待索引'} />
         </PageStatStrip>
 
         <PageSurface
@@ -234,8 +225,4 @@ function countItems(player: WorldPlayer) {
 function formatCoordinate(x: number, y: number) {
   if (!x && !y) return '-'
   return `${x.toFixed(0)}, ${y.toFixed(0)}`
-}
-
-function wait(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms))
 }

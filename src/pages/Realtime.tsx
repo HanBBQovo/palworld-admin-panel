@@ -6,8 +6,10 @@ import {
   getLiveMetrics,
   getLivePlayers,
   getWorldPlayers,
+  getWorldStatus,
 } from '@/api/palworld'
 import { WorldMap } from '@/components/palworld/WorldMap'
+import { WorldIndexAlert } from '@/components/palworld/WorldIndexAlert'
 import { InlineLoader } from '@/components/PageLoader'
 import { PageShell, PageStat, PageStatStrip, PageSurface } from '@/components/layout/PageScaffold'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -25,7 +27,8 @@ export default function Realtime() {
   const players = useResource(getLivePlayers, [], { refreshIntervalMs: LIVE_REFRESH_MS })
   const metrics = useResource(getLiveMetrics, [], { refreshIntervalMs: LIVE_REFRESH_MS })
   const map = useResource(getLiveMap, [], { refreshIntervalMs: LIVE_REFRESH_MS })
-  const snapshotPlayers = useResource(getWorldPlayers, [], { refreshIntervalMs: 60_000 })
+  const snapshotPlayers = useResource(getWorldPlayers, [], { refreshIntervalMs: 15_000 })
+  const worldStatus = useResource(getWorldStatus, [], { refreshIntervalMs: 5_000 })
   const realtime = capabilities.data?.layers.find((layer) => layer.id === 'realtime')
   const livePlayers = players.data?.data ?? []
 
@@ -35,6 +38,7 @@ export default function Realtime() {
     metrics.refresh()
     map.refresh()
     snapshotPlayers.refresh()
+    worldStatus.refresh()
   }
 
   return (
@@ -60,6 +64,8 @@ export default function Realtime() {
             <AlertDescription>{realtime.message}。当前地图会保留最近存档位置和基地，但不会冒充在线坐标。</AlertDescription>
           </Alert>
         ) : null}
+
+        <WorldIndexAlert status={worldStatus.data} />
 
         <PageStatStrip>
           <PageStat label="在线玩家" value={livePlayers.length} note={players.data?.meta.source ?? '等待服务器响应'} />

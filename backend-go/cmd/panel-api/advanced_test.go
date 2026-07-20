@@ -5,6 +5,8 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,6 +102,9 @@ func TestRefreshWorldSnapshotCopiesCompletedBackup(t *testing.T) {
 	if snapshot.BackupID != filepath.Base(backupPath) || snapshot.ID == "" {
 		t.Fatalf("unexpected snapshot metadata: %#v", snapshot)
 	}
+	if snapshot.Fingerprint == "" {
+		t.Fatal("snapshot fingerprint was not recorded")
+	}
 	assertFileContent(t, filepath.Join(snapshotDir, "Level.sav"), "level-data")
 	assertFileContent(t, filepath.Join(snapshotDir, "Players", "player.sav"), "player-data")
 	if _, err := os.Stat(filepath.Join(stateDir, "world-index-snapshot.json")); err != nil {
@@ -118,6 +123,36 @@ func TestWorldSnapshotAvailableUsesLevelSave(t *testing.T) {
 	}
 	if !app.worldSnapshotAvailable() {
 		t.Fatal("snapshot with Level.sav must be available")
+	}
+}
+
+func TestWorldSnapshotFingerprintTracksPlayerSaves(t *testing.T) {
+	dir := t.TempDir()
+	playersDir := filepath.Join(dir, "Players")
+	if err := os.MkdirAll(playersDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Level.sav"), []byte("same-level"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	playerPath := filepath.Join(playersDir, "player.sav")
+	if err := os.WriteFile(playerPath, []byte("old-player"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := worldSnapshotFingerprint(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(playerPath, []byte("new-player"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	after, err := worldSnapshotFingerprint(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("changing only a player save must change the snapshot fingerprint")
 	}
 }
 
@@ -142,7 +177,11 @@ func TestWorldSnapshotNeedsRefreshTracksLatestBackup(t *testing.T) {
 	}
 
 	app := &App{cfg: Config{BackupsDir: backupsDir, StateDir: stateDir, WorldSnapshot: snapshotDir}}
-	metadata, err := json.Marshal(WorldSnapshot{ID: "snapshot", BackupID: filepath.Base(oldPath)})
+	fingerprint, err := worldSnapshotFingerprint(snapshotDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := json.Marshal(WorldSnapshot{ID: "snapshot", BackupID: filepath.Base(oldPath), Fingerprint: fingerprint})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,6 +203,57 @@ func TestWorldSnapshotNeedsRefreshTracksLatestBackup(t *testing.T) {
 	if err != nil || !needsRefresh || latestBackupID != filepath.Base(newPath) {
 		t.Fatalf("expected newer backup, refresh=%v latest=%q err=%v", needsRefresh, latestBackupID, err)
 	}
+}
+
+func TestWaitForWorldIndexRequiresMatchingFingerprint(t *testing.T) {
+	server := newWorldIndexStatusServer(t, map[string]any{
+		"ready": true, "syncing": false, "stale": false,
+		"fingerprint": "current", "players": 7, "guilds": 2,
+	})
+	defer server.Close()
+
+	app := &App{cfg: Config{WorldIndexURL: server.URL, WorldIndexPass: "secret"}}
+	status, err := app.waitForWorldIndex("current", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Players != 7 || status.Guilds != 2 {
+		t.Fatalf("unexpected index counts: %#v", status)
+	}
+	if _, err := app.waitForWorldIndex("different", 20*time.Millisecond); err == nil {
+		t.Fatal("mismatched fingerprint must not be accepted as current")
+	}
+}
+
+func TestWaitForWorldIndexReturnsParserFailure(t *testing.T) {
+	server := newWorldIndexStatusServer(t, map[string]any{
+		"ready": true, "syncing": false, "stale": true,
+		"last_error": "new save format is unsupported", "fingerprint": "old",
+	})
+	defer server.Close()
+
+	app := &App{cfg: Config{WorldIndexURL: server.URL, WorldIndexPass: "secret"}}
+	_, err := app.waitForWorldIndex("current", time.Second)
+	if err == nil || !strings.Contains(err.Error(), "new save format is unsupported") {
+		t.Fatalf("expected parser error, got %v", err)
+	}
+}
+
+func newWorldIndexStatusServer(t *testing.T, status map[string]any) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/login":
+			writeJSON(w, http.StatusOK, map[string]string{"token": "test-token"})
+		case "/api/status":
+			if r.Header.Get("Authorization") != "Bearer test-token" {
+				t.Fatalf("missing world-index bearer token")
+			}
+			writeJSON(w, http.StatusOK, status)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
 }
 
 func TestNormalizeAnnouncementSupportsChinese(t *testing.T) {

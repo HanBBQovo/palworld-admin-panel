@@ -1,11 +1,11 @@
-import { Boxes, HardDriveDownload, MapPinned, RefreshCw, Users } from 'lucide-react'
+import { Boxes, HardDriveDownload, RefreshCw, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import { getWorldGuilds, getWorldStatus, refreshWorldSnapshot, type WorldGuild } from '@/api/palworld'
 import { WorldMap } from '@/components/palworld/WorldMap'
+import { WorldIndexAlert } from '@/components/palworld/WorldIndexAlert'
 import { InlineLoader } from '@/components/PageLoader'
 import { PageShell, PageStat, PageStatStrip, PageSurface } from '@/components/layout/PageScaffold'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -15,7 +15,7 @@ import { useGlobalToast } from '@/components/ui/use-global-toast'
 import { useResource } from '@/lib/use-resource'
 
 export default function WorldGuilds() {
-  const status = useResource(getWorldStatus, [], { refreshIntervalMs: 60_000 })
+  const status = useResource(getWorldStatus, [], { refreshIntervalMs: 5_000 })
   const guilds = useResource(getWorldGuilds, [], { refreshIntervalMs: 60_000 })
   const [selectedKey, setSelectedKey] = useState('')
   const [refreshing, setRefreshing] = useState(false)
@@ -37,7 +37,6 @@ export default function WorldGuilds() {
     try {
       const result = await refreshWorldSnapshot()
       showToast('success', result.message)
-      await wait(1_200)
       status.refresh()
       guilds.refresh()
     } catch (error) {
@@ -66,18 +65,10 @@ export default function WorldGuilds() {
       }
     >
       <div className="flex flex-col gap-5">
-        {status.data && !status.data.upToDate ? (
-          <Alert>
-            <MapPinned />
-            <AlertTitle>世界索引尚未追上最新备份</AlertTitle>
-            <AlertDescription>
-              当前 {status.data.snapshot.backupId || '-'}，最新 {status.data.latestBackupId || '-'}。
-            </AlertDescription>
-          </Alert>
-        ) : null}
+        <WorldIndexAlert status={status.data} />
 
         <PageStatStrip>
-          <PageStat label="世界快照" value={status.data?.snapshot.backupId || '-'} note={status.data?.snapshot.createdAt || '等待快照'} />
+          <PageStat label="世界快照" value={status.data?.snapshot.backupId || '-'} note={status.data?.indexUpdatedAt || status.data?.snapshot.createdAt || '等待快照'} />
           <PageStat label="公会" value={rows.length || '-'} note="来自 Level.sav" />
           <PageStat label="成员记录" value={memberCount || '-'} note="按公会汇总" />
           <PageStat label="基地" value={baseCount || '-'} note="地图坐标可见" />
@@ -178,8 +169,4 @@ export default function WorldGuilds() {
 
 function guildKey(guild: WorldGuild) {
   return guild.admin_player_uid || guild.name
-}
-
-function wait(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms))
 }

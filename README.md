@@ -45,7 +45,7 @@ npm start        # 本地启动 Go API，同时提供 /api 和 dist 静态文件
 高级控制台通过同一个 Go API 接入三层能力：
 
 - `GET /api/palworld/live/*`：官方 REST 实时玩家、坐标、等级、延迟和性能指标。
-- `GET /api/palworld/world/*`：读取固定版本 Save Pal 兼容索引生成的玩家、帕鲁、背包、公会和基地数据。
+- `GET /api/palworld/world/*`：读取固定版本 Save Pal v1.2.0 Rust 索引生成的玩家、帕鲁、背包、公会和基地数据；只有索引指纹匹配当前快照时才标记为最新。
 - `POST /api/palworld/editor/previews`：创建存档编辑预览；不会直接写游戏存档。
 - `GET /api/palworld/capabilities`：返回每层的安装、可达、待重启和安全门禁状态。
 
